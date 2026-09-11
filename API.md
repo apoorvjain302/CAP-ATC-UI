@@ -24,6 +24,8 @@ X-API-Key: <your-api-key>
 
 The `/api/v1/health` endpoint does **not** require authentication.
 
+> **Note:** If the server has no `API_KEY` environment variable configured (e.g. a private internal deployment), all endpoints are open and the header can be omitted.
+
 ---
 
 ## How the Data Flows
@@ -83,9 +85,11 @@ Accepts files and parameters, runs the full pipeline, returns results.
 | `smodilogFile` | file (.xlsx) | TUA only | SMODILOG export (namespace patch analysis) |
 | `trnspacetFile` | file (.xlsx) | TUA only | TRNSPACET export (namespace patch analysis) |
 | `nsOwnerFile` | file (.xlsx) | No | Namespace owner mapping file |
-| `wait` | string | No | `true` (default) = wait and return artifacts; `false` = async (returns jobId immediately) |
+| `wait` | string | No | `true` (default) = wait and return artifacts; `false` = async (returns jobId immediately). Must be the exact string `"false"` to trigger async — omitting it or any other value means synchronous. |
 
 *Not required when `analysisMode=tua_only`
+
+> **Note:** If an unrecognised `analysisMode` value is submitted, the server silently falls back to `atc`. No error is returned — check the `analysisMode` field in the response to confirm what was used.
 
 ---
 
@@ -183,7 +187,27 @@ X-API-Key: <your-api-key>
 
 While running:
 ```json
-{ "jobId": "...", "status": "running", "statusMsg": "Classifying chunk 2/4..." }
+{
+  "jobId": "...",
+  "status": "running",
+  "statusMsg": "Classifying chunk 2/4...",
+  "customer": "MyProject",
+  "migType": "conversion",
+  "analysisMode": "atc_tua"
+}
+```
+
+If failed:
+```json
+{
+  "jobId": "...",
+  "status": "failed",
+  "statusMsg": "Analysis failed — see error field",
+  "error": "Analysis failed — see error field",
+  "customer": "MyProject",
+  "migType": "conversion",
+  "analysisMode": "atc"
+}
 ```
 
 When done — same structure as synchronous response above (includes `counts` and `artifacts`).
@@ -202,6 +226,13 @@ GET /api/v1/analyze/{jobId}/download/tua
 ```
 
 Returns the file with `Content-Disposition: attachment` and the correct MIME type.
+
+> **409 Conflict** is returned if the job status is not `done` — this includes both still-running and failed jobs.
+
+> **404 Not Found** for an unknown role includes an `availableRoles` array to help discover what artifacts exist:
+> ```json
+> { "error": "Artifact \"xyz\" not found", "availableRoles": ["atc_result", "pptx", "estimation"] }
+> ```
 
 ---
 
@@ -395,11 +426,11 @@ Use `wait=false` when the ATC file exceeds ~5,000 rows to avoid HTTP timeouts.
 ```
 Step 1 — Submit job
   POST /api/v1/analyze  (with wait=false)
-  → 202 { "jobId": "uuid", "pollUrl": "/api/v1/analyze/uuid" }
+  → 202 { "jobId": "uuid", "status": "running", "pollUrl": "/api/v1/analyze/uuid", "message": "..." }
 
 Step 2 — Poll until done (every 5–10 seconds)
   GET /api/v1/analyze/{jobId}
-  → { "status": "running", "statusMsg": "Classifying chunk 2/4..." }
+  → { "status": "running", "statusMsg": "Classifying chunk 2/4...", "customer": "...", ... }
   → { "status": "running", "statusMsg": "Generating PowerPoint..." }
   → { "status": "done",    "counts": {...}, "artifacts": [...] }  ← stop here
 
@@ -446,12 +477,13 @@ for artifact in poll["artifacts"]:
 |---|---|
 | `400 Bad Request` | Missing required field (`customer`, `atcFile`, or TUA files for TUA mode) |
 | `401 Unauthorized` | Missing or incorrect `X-API-Key` |
-| `404 Not Found` | `jobId` does not exist |
-| `409 Conflict` | Download requested but job is not done yet |
+| `404 Not Found` | `jobId` does not exist, or artifact `role` not found (includes `availableRoles` in body) |
+| `409 Conflict` | Download requested but job is not `done` (includes jobs that have `failed`) |
 | `500 Internal Server Error` | Analysis failed — `error` field contains the reason |
 
+Sync mode failure response (`wait=true`, job fails during processing):
 ```json
-{ "error": "smodilogFile and trnspacetFile are required for TUA analysis modes" }
+{ "jobId": "...", "status": "failed", "error": "reason", "customer": "MyProject" }
 ```
 
 ---
