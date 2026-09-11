@@ -46,6 +46,9 @@ async function _db() {
   return cds.connect.to("db");
 }
 
+// ── External REST API ────────────────────────────────────────────────────────
+const externalApi = require("./srv/api");
+
 cds.on("bootstrap", async (app) => {
 
   // ── Serve SAPUI5 frontend — must be first to beat CAP's own routing ──────
@@ -55,6 +58,9 @@ cds.on("bootstrap", async (app) => {
   const webappDir = path.join(appBase, "app", "atc-ui", "webapp");
   app.use(express.static(webappDir, { index: "index.html" }));
   app.use(express.json({ limit: "10mb" }));
+
+  // ── Register external REST API (/api/v1/*) ────────────────────────────────
+  externalApi.register(app);
 
   // ── Pin browser session to this CF instance ────────────────────────────────
   // Called via fetch() with X-CF-App-Instance header AFTER the first upload
