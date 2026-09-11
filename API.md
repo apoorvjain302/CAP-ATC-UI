@@ -244,6 +244,29 @@ Returns the file with `Content-Disposition: attachment` and the correct MIME typ
 
 ---
 
+## How the Request Is Structured
+
+The Excel file is **not** passed in the URL. It travels in the **request body** as a multipart form upload — the same mechanism as an HTML file-input form.
+
+```
+POST https://cap-atc-ui-gdh.cfapps.eu10-005.hana.ondemand.com/api/v1/analyze
+     ─────────────────────────────────────────────────────────────────────────
+     ↑ URL only identifies the endpoint — no data here
+
+Header:
+  X-API-Key: <your-api-key>          ← authentication
+
+Body (multipart/form-data):
+  customer     = "Acme Corp"         ← plain text field
+  analysisMode = "atc"               ← plain text field
+  migType      = "conversion"        ← plain text field
+  atcFile      = [binary .xlsx bytes] ← FILE — streamed in the body
+```
+
+URLs are limited to a few KB of text. A 10 MB Excel file can only travel inside the HTTP body. Every HTTP library handles this automatically when you use its multipart/form-data API — you just point it at the file path.
+
+---
+
 ## Implementation Examples
 
 ### cURL (command line)
@@ -307,47 +330,57 @@ echo "<base64 content from response>" | base64 -d > atc_result.xlsx
 ### JavaScript / Node.js
 
 ```javascript
-const FormData = require('form-data');
+const FormData = require('form-data');  // npm install form-data axios
 const fs       = require('fs');
 const axios    = require('axios');
 
 const API_BASE = 'https://cap-atc-ui-gdh.cfapps.eu10-005.hana.ondemand.com';
-const API_KEY  = '<your-api-key>';
+const API_KEY  = process.env.ATC_API_KEY;  // never hardcode — use env var
 
 async function runAtcAnalysis({ customer, analysisMode = 'atc', migType = 'conversion',
                                  atcFile, cloneFile, smodilogFile, trnspacetFile, nsOwnerFile }) {
   const form = new FormData();
-  form.append('customer', customer);
-  form.append('analysisMode', analysisMode);
-  form.append('migType', migType);
 
-  if (atcFile)       form.append('atcFile',       fs.createReadStream(atcFile));
-  if (cloneFile)     form.append('cloneFile',      fs.createReadStream(cloneFile));
-  if (smodilogFile)  form.append('smodilogFile',   fs.createReadStream(smodilogFile));
-  if (trnspacetFile) form.append('trnspacetFile',  fs.createReadStream(trnspacetFile));
-  if (nsOwnerFile)   form.append('nsOwnerFile',    fs.createReadStream(nsOwnerFile));
+  // Text fields go in the body — NOT the URL
+  form.append('customer',     customer);
+  form.append('analysisMode', analysisMode);
+  form.append('migType',      migType);
+
+  // Files also go in the body as binary streams
+  if (atcFile)       form.append('atcFile',      fs.createReadStream(atcFile));
+  if (cloneFile)     form.append('cloneFile',     fs.createReadStream(cloneFile));
+  if (smodilogFile)  form.append('smodilogFile',  fs.createReadStream(smodilogFile));
+  if (trnspacetFile) form.append('trnspacetFile', fs.createReadStream(trnspacetFile));
+  if (nsOwnerFile)   form.append('nsOwnerFile',   fs.createReadStream(nsOwnerFile));
 
   const response = await axios.post(`${API_BASE}/api/v1/analyze`, form, {
     headers: { ...form.getHeaders(), 'X-API-Key': API_KEY },
-    timeout: 300000,  // 5 minutes
+    timeout: 300_000,  // 5 minutes
   });
 
   const { counts, artifacts } = response.data;
-  console.log('Analysis complete. Counts:', counts);
+  console.log('Counts:', counts);
+  // counts: { total, hca, s4h, spdd, spau, fitGapDelta }
 
-  // Save each artifact to disk
+  // Each artifact has a base64 content field — decode and save
   for (const artifact of artifacts) {
-    const buffer = Buffer.from(artifact.content, 'base64');
-    fs.writeFileSync(artifact.filename, buffer);
+    fs.writeFileSync(artifact.filename, Buffer.from(artifact.content, 'base64'));
     console.log(`Saved: ${artifact.filename}  (${artifact.size} bytes)`);
+    // artifact.role: "atc_result" | "pptx" | "estimation" | "tua"
   }
 
   return response.data;
 }
 
-// Example: ATC + TUA + Clone, upgrade mode
+// ATC only
 runAtcAnalysis({
-  customer:      'CustomerABC',
+  customer:  'Acme Corp',
+  atcFile:   './ATC_Extract.xlsx',
+});
+
+// Full analysis — ATC + TUA + Clone, upgrade mode
+runAtcAnalysis({
+  customer:      'Acme Corp',
   analysisMode:  'atc_tua_clone',
   migType:       'upgrade',
   atcFile:       './ATC_Extract.xlsx',
@@ -362,59 +395,195 @@ runAtcAnalysis({
 ### Python
 
 ```python
-import requests, base64, os
+import os, requests, base64
 
-API_BASE = "https://cap-atc-ui-gdh.cfapps.eu10-005.hana.ondemand.com"
-API_KEY  = "<your-api-key>"
-XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+API_BASE  = 'https://cap-atc-ui-gdh.cfapps.eu10-005.hana.ondemand.com'
+API_KEY   = os.environ['ATC_API_KEY']  # never hardcode — use env var
+XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
-def run_atc_analysis(customer, analysis_mode="atc", mig_type="conversion",
+def run_atc_analysis(customer, analysis_mode='atc', mig_type='conversion',
                      atc_file=None, clone_file=None,
                      smodilog_file=None, trnspacet_file=None, ns_owner_file=None):
 
-    headers = {"X-API-Key": API_KEY}
-    data    = {"customer": customer, "analysisMode": analysis_mode, "migType": mig_type}
-    files   = {}
+    # Text fields go in `data=` — NOT the URL
+    data = {'customer': customer, 'analysisMode': analysis_mode, 'migType': mig_type}
 
+    # Files go in `files=` — binary content streamed in the body
+    files = {}
     def _add(field, path):
         if path:
-            files[field] = (os.path.basename(path), open(path, "rb"), XLSX_MIME)
+            files[field] = (os.path.basename(path), open(path, 'rb'), XLSX_MIME)
 
-    _add("atcFile",       atc_file)
-    _add("cloneFile",     clone_file)
-    _add("smodilogFile",  smodilog_file)
-    _add("trnspacetFile", trnspacet_file)
-    _add("nsOwnerFile",   ns_owner_file)
+    _add('atcFile',       atc_file)
+    _add('cloneFile',     clone_file)
+    _add('smodilogFile',  smodilog_file)
+    _add('trnspacetFile', trnspacet_file)
+    _add('nsOwnerFile',   ns_owner_file)
 
     try:
-        response = requests.post(
-            f"{API_BASE}/api/v1/analyze",
-            headers=headers, data=data, files=files, timeout=300
+        r = requests.post(
+            f'{API_BASE}/api/v1/analyze',
+            headers={'X-API-Key': API_KEY},
+            data=data,
+            files=files,
+            timeout=300,
         )
-        response.raise_for_status()
+        r.raise_for_status()
     finally:
         for _, (_, fh, _) in files.items():
             fh.close()
 
-    result = response.json()
-    print("Counts:", result["counts"])
+    result = r.json()
+    print('Counts:', result['counts'])
+    # counts: { 'total', 'hca', 's4h', 'spdd', 'spau', 'fitGapDelta' }
 
-    for artifact in result["artifacts"]:
-        content = base64.b64decode(artifact["content"])
-        with open(artifact["filename"], "wb") as f:
-            f.write(content)
+    for artifact in result['artifacts']:
+        with open(artifact['filename'], 'wb') as f:
+            f.write(base64.b64decode(artifact['content']))
         print(f"Saved: {artifact['filename']}  ({artifact['size']} bytes)")
+        # artifact['role']: "atc_result" | "pptx" | "estimation" | "tua"
 
     return result
 
-# Example: ATC + Clone, conversion mode
-run_atc_analysis(
-    customer      = "CustomerABC",
-    analysis_mode = "atc_clone",
-    mig_type      = "conversion",
-    atc_file      = "ATC_Extract.xlsx",
-    clone_file    = "Clone_Extract.xlsx",
-)
+# ATC only
+run_atc_analysis('Acme Corp', atc_file='ATC_Extract.xlsx')
+
+# ATC + Clone, conversion
+run_atc_analysis('Acme Corp', analysis_mode='atc_clone',
+                 atc_file='ATC_Extract.xlsx', clone_file='Clone_Extract.xlsx')
+```
+
+---
+
+### Java (OkHttp)
+
+```java
+// Maven: com.squareup.okhttp3:okhttp:4.12.0  +  com.fasterxml.jackson.core:jackson-databind
+
+import okhttp3.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.File;
+import java.util.*;
+
+public class AtcApiClient {
+
+    private static final String API_BASE = "https://cap-atc-ui-gdh.cfapps.eu10-005.hana.ondemand.com";
+    private static final MediaType XLSX   = MediaType.parse(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+
+    private final OkHttpClient http = new OkHttpClient.Builder()
+        .callTimeout(java.time.Duration.ofMinutes(5))
+        .build();
+    private final ObjectMapper json = new ObjectMapper();
+
+    public Map<String, Object> runAnalysis(String customer, String analysisMode,
+                                           String migType, File atcFile) throws Exception {
+
+        // Text fields and files both go in the multipart body — NOT the URL
+        MultipartBody.Builder body = new MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("customer",     customer)
+            .addFormDataPart("analysisMode", analysisMode)
+            .addFormDataPart("migType",      migType)
+            .addFormDataPart("atcFile", atcFile.getName(),
+                RequestBody.create(atcFile, XLSX));  // file streamed in body
+
+        Request request = new Request.Builder()
+            .url(API_BASE + "/api/v1/analyze")
+            .addHeader("X-API-Key", System.getenv("ATC_API_KEY"))  // from env var
+            .post(body.build())
+            .build();
+
+        try (Response response = http.newCall(request).execute()) {
+            if (!response.isSuccessful())
+                throw new RuntimeException("API error: " + response.code() + " " + response.body().string());
+
+            Map result = json.readValue(response.body().string(), Map.class);
+
+            // Save artifacts
+            List<Map> artifacts = (List<Map>) result.get("artifacts");
+            for (Map artifact : artifacts) {
+                byte[] bytes = Base64.getDecoder().decode((String) artifact.get("content"));
+                java.nio.file.Files.write(
+                    java.nio.file.Path.of((String) artifact.get("filename")), bytes);
+                System.out.println("Saved: " + artifact.get("filename"));
+            }
+
+            System.out.println("Counts: " + result.get("counts"));
+            return result;
+        }
+    }
+
+    public static void main(String[] args) throws Exception {
+        new AtcApiClient().runAnalysis(
+            "Acme Corp", "atc", "conversion", new File("ATC_Extract.xlsx"));
+    }
+}
+```
+
+---
+
+### React / Browser App
+
+> **Important:** Never call the ATC API directly from browser-side JavaScript — that would expose your API key to anyone who opens DevTools. Route all calls through your own backend.
+
+```
+Browser → Your backend server → ATC API
+```
+
+**Backend (Node/Express proxy):**
+
+```javascript
+const express  = require('express');
+const multer   = require('multer');
+const FormData = require('form-data');
+const axios    = require('axios');
+
+const app    = express();
+const upload = multer({ storage: multer.memoryStorage() });
+
+app.post('/run-analysis', upload.single('atcFile'), async (req, res) => {
+  const form = new FormData();
+  form.append('customer',     req.body.customer);
+  form.append('analysisMode', req.body.analysisMode || 'atc');
+  form.append('migType',      req.body.migType      || 'conversion');
+  // File buffer from multer re-attached to outgoing request body
+  form.append('atcFile', req.file.buffer, { filename: req.file.originalname });
+
+  const { data } = await axios.post(
+    'https://cap-atc-ui-gdh.cfapps.eu10-005.hana.ondemand.com/api/v1/analyze',
+    form,
+    { headers: { ...form.getHeaders(), 'X-API-Key': process.env.ATC_API_KEY } }
+  );
+
+  res.json(data);  // forward counts + artifacts to your frontend
+});
+```
+
+**Frontend (React):**
+
+```jsx
+async function handleUpload(file, customer) {
+  const form = new FormData();
+  form.append('customer', customer);
+  form.append('atcFile',  file);        // File object from <input type="file">
+
+  const res    = await fetch('/run-analysis', { method: 'POST', body: form });
+  const result = await res.json();
+
+  console.log('Counts:', result.counts);
+
+  // Download a file directly in the browser
+  for (const artifact of result.artifacts) {
+    const bytes = Uint8Array.from(atob(artifact.content), c => c.charCodeAt(0));
+    const blob  = new Blob([bytes], { type: artifact.mimeType });
+    const url   = URL.createObjectURL(blob);
+    const a     = document.createElement('a');
+    a.href      = url;
+    a.download  = artifact.filename;
+    a.click();
+  }
+}
 ```
 
 ---
