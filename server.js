@@ -11,30 +11,10 @@ const express  = require("express");
 const multer   = require("multer");
 const archiver = require("archiver");
 const passport = require("passport");
-const xssec    = require("@sap/xssec");
 
 try {
   require("dotenv").config({ path: path.join(__dirname, ".env"), override: false });
 } catch (_) {}
-
-// ── XSUAA JWT middleware for internal /atc/* routes ───────────────────────────
-// Protects the UI-facing endpoints (upload, job create, download).
-// Falls through silently if no XSUAA binding is present (local dev).
-function _buildAtcAuthMiddleware() {
-  try {
-    const vcap  = JSON.parse(process.env.VCAP_SERVICES || "{}");
-    const creds = vcap.xsuaa?.[0]?.credentials;
-    if (!creds) return null;
-    // @sap/xssec v4 uses XssecPassportStrategy (JWTStrategy was removed in v4)
-    passport.use("JWT-internal", new xssec.XssecPassportStrategy(new xssec.XsuaaService(creds)));
-    console.log("[server] XSUAA JWT auth enabled for /atc/* routes");
-    return passport.authenticate("JWT-internal", { session: false });
-  } catch (e) {
-    console.warn("[server] XSUAA strategy init failed:", e.message);
-    return null;
-  }
-}
-const _atcAuth = _buildAtcAuthMiddleware();
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -99,8 +79,8 @@ cds.on("bootstrap", async (app) => {
     res.json({ ok: true, instance: _cfAppInstance });
   });
 
-  // ── Upload a single file ───────────────────────────────────────────────────
-  app.post("/atc/upload", ...(_atcAuth ? [_atcAuth] : []), upload.single("file"), async (req, res) => {
+// ── Upload a single file ───────────────────────────────────────────────────
+  app.post("/atc/upload", upload.single("file"), async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ error: "No file received" });
       const { role } = req.body;
@@ -132,7 +112,7 @@ cds.on("bootstrap", async (app) => {
   });
 
   // ── Create a new job ───────────────────────────────────────────────────────
-  app.post("/atc/jobs/create", ...(_atcAuth ? [_atcAuth] : []), async (req, res) => {
+  app.post("/atc/jobs/create", async (req, res) => {
     try {
       const { customer, atcFileId, cloneFileId, smodilogId, trnspacetId, nsOwnerId, useAppLogic, migType, analysisMode } = req.body;
       if (!customer) return res.status(400).json({ error: "customer is required" });
@@ -194,7 +174,7 @@ cds.on("bootstrap", async (app) => {
   });
 
   // ── Download a single artifact ─────────────────────────────────────────────
-  app.get("/atc/download/:artifactId", ...(_atcAuth ? [_atcAuth] : []), async (req, res) => {
+  app.get("/atc/download/:artifactId", async (req, res) => {
     try {
       const db  = await _db();
       const [art] = await db.run(SELECT.from("atc.Artifacts").columns("id","filename","mimeType","content").where({ id: req.params.artifactId }));
@@ -211,7 +191,7 @@ cds.on("bootstrap", async (app) => {
   });
 
   // ── Download all artifacts as ZIP ──────────────────────────────────────────
-  app.get("/atc/downloadAll/:jobId", ...(_atcAuth ? [_atcAuth] : []), async (req, res) => {
+  app.get("/atc/downloadAll/:jobId", async (req, res) => {
     try {
       const db   = await _db();
       const arts = await db.run(SELECT.from("atc.Artifacts").columns("id","filename","mimeType","content").where({ jobId: req.params.jobId }));
