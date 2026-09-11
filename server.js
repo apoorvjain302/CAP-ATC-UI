@@ -25,10 +25,12 @@ function _buildAtcAuthMiddleware() {
     const vcap  = JSON.parse(process.env.VCAP_SERVICES || "{}");
     const creds = vcap.xsuaa?.[0]?.credentials;
     if (!creds) return null;
-    passport.use("JWT-internal", new xssec.JWTStrategy(creds));
+    // @sap/xssec v4 uses XssecPassportStrategy (JWTStrategy was removed in v4)
+    passport.use("JWT-internal", new xssec.XssecPassportStrategy(new xssec.XsuaaService(creds)));
     console.log("[server] XSUAA JWT auth enabled for /atc/* routes");
     return passport.authenticate("JWT-internal", { session: false });
-  } catch (_) {
+  } catch (e) {
+    console.warn("[server] XSUAA strategy init failed:", e.message);
     return null;
   }
 }

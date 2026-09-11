@@ -136,11 +136,13 @@ async function _toBuffer(val) {
 
 function _buildXsuaaStrategy() {
   try {
-    const vcap = JSON.parse(process.env.VCAP_SERVICES || "{}");
+    const vcap  = JSON.parse(process.env.VCAP_SERVICES || "{}");
     const creds = vcap.xsuaa?.[0]?.credentials;
     if (!creds) return null;
-    return new xssec.JWTStrategy(creds);
-  } catch (_) {
+    // @sap/xssec v4 uses XssecPassportStrategy (JWTStrategy was removed in v4)
+    return new xssec.XssecPassportStrategy(new xssec.XsuaaService(creds));
+  } catch (e) {
+    console.warn("[API] XSUAA strategy init failed:", e.message);
     return null;
   }
 }
@@ -156,16 +158,17 @@ if (_xsuaaStrategy) {
 function _authGuard(req, res, next) {
   // ── Try XSUAA Bearer token first ──────────────────────────────────────────
   if (_xsuaaStrategy && req.headers.authorization?.startsWith("Bearer ")) {
-    return passport.authenticate("JWT", { session: false }, (err, user) => {
-      if (err || !user) {
+    return passport.authenticate("JWT", { session: false }, (err, token) => {
+      if (err || !token) {
         return res.status(401).json({ error: "Invalid or expired Bearer token" });
       }
-      // Check the Analyze scope
-      if (!user.checkScope(`${user.xsappname}.Analyze`) &&
-          !user.checkScope(`${user.xsappname}.User`)) {
+      // token.scopes is an array of granted scopes (xssec v4)
+      const scopes = token.scopes || [];
+      const hasScope = scopes.some(s => s.endsWith(".Analyze") || s.endsWith(".User"));
+      if (!hasScope) {
         return res.status(403).json({ error: "Insufficient scope — requires Analyze or User scope" });
       }
-      req.user = user;
+      req.user = token;
       return next();
     })(req, res, next);
   }
