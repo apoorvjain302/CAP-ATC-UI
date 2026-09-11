@@ -1,0 +1,5 @@
+node_modules/
+.env
+.cdsrc-private.json
+*.log
+.git/

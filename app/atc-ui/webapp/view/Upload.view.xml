@@ -1,0 +1,296 @@
+<mvc:View
+  controllerName="com.sap.atcanalysis.controller.Upload"
+  xmlns:mvc="sap.ui.core.mvc"
+  xmlns="sap.m"
+  xmlns:l="sap.ui.layout"
+  xmlns:u="sap.ui.unified"
+  xmlns:core="sap.ui.core"
+  displayBlock="true"
+>
+  <Page
+    id="uploadPage"
+    showHeader="false"
+    backgroundDesign="Solid"
+  >
+    <content>
+
+      <!-- ── Top Header Bar ──────────────────────────────────────────── -->
+      <HBox
+        justifyContent="SpaceBetween"
+        alignItems="Center"
+        class="atcHeaderBar"
+      >
+        <HBox alignItems="Center">
+          <Image src="./img/sap_logo.svg" height="28px" alt="SAP Logo" class="sapUiTinyMarginEnd" />
+          <Title text="Conversion Assessment Tool" level="H4" titleStyle="H4" />
+        </HBox>
+        <HBox alignItems="Center">
+          <Label text="S/4HANA Code Conversion Assessment" design="Bold" class="sapUiSmallMarginEnd" />
+        </HBox>
+      </HBox>
+
+      <!-- ── Page Wrapper ──────────────────────────────────────────────── -->
+      <l:VerticalLayout width="100%" class="atcPageWrapper sapUiMediumMarginTop">
+
+        <!-- ── Customer Name ─────────────────────────────────────────── -->
+        <Panel class="atcCard sapUiSmallMarginBottom" expandable="false">
+          <content>
+            <VBox class="atcCardContent">
+              <HBox alignItems="Center" class="atcSectionHeader sapUiTinyMarginBottom">
+                <core:Icon src="sap-icon://account" class="atcSectionIcon" />
+                <Title text="Customer" level="H5" titleStyle="H5" class="sapUiTinyMarginBegin" />
+              </HBox>
+              <Label text="Customer Name" required="true" class="atcFieldLabel sapUiTinyMarginBottom" />
+              <Input
+                id="customerInput"
+                placeholder="Enter customer name (e.g. Office Works)"
+                width="420px"
+                liveChange=".onCustomerChange"
+                class="atcCustomerInput"
+              />
+            </VBox>
+          </content>
+        </Panel>
+
+        <!-- ── Analysis Option ───────────────────────────────────────── -->
+        <Panel class="atcCard sapUiSmallMarginBottom" expandable="false">
+          <content>
+            <VBox class="atcCardContent">
+              <HBox alignItems="Center" class="atcSectionHeader sapUiTinyMarginBottom">
+                <core:Icon src="sap-icon://settings" class="atcSectionIcon" />
+                <Title text="Analysis Option" level="H5" titleStyle="H5" class="sapUiTinyMarginBegin" />
+              </HBox>
+              <Label text="Select the type of analysis to run" class="atcSectionSubtitle sapUiTinyMarginBottom" />
+              <SegmentedButton
+                id="analysisModeBtn"
+                selectionChange=".onModeChange"
+                width="100%"
+                class="atcModeBtn"
+              >
+                <items>
+                  <SegmentedButtonItem key="atc"           text="ATC Only"          />
+                  <SegmentedButtonItem key="atc_clone"     text="ATC + Clone"       />
+                  <SegmentedButtonItem key="atc_tua"       text="ATC + TUA"         />
+                  <SegmentedButtonItem key="atc_tua_clone" text="ATC + TUA + Clone" />
+                  <SegmentedButtonItem key="tua_only"      text="TUA Only"          />
+                </items>
+              </SegmentedButton>
+            </VBox>
+          </content>
+        </Panel>
+
+        <!-- ── ATC File (visible for all modes except TUA Only) ──────── -->
+        <Panel
+          id="atcUploaderPanel"
+          class="atcCard atcFileCard sapUiSmallMarginBottom"
+          expandable="false"
+        >
+          <content>
+            <VBox class="atcCardContent">
+              <HBox alignItems="Center" class="atcSectionHeader sapUiTinyMarginBottom">
+                <core:Icon src="sap-icon://attachment" class="atcSectionIcon" />
+                <Title text="ATC File" level="H5" titleStyle="H5" class="sapUiTinyMarginBegin" />
+                <ObjectStatus text="Required" state="Error" class="sapUiTinyMarginBegin atcRequiredBadge" />
+              </HBox>
+              <Label text="XLSX exported from customer system" class="atcSectionSubtitle sapUiTinyMarginBottom" />
+              <u:FileUploader
+                id="atcFileUploader"
+                name="file"
+                uploadUrl="/atc/upload"
+                fileType="xlsx,xls"
+                mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                multiple="false"
+                uploadOnChange="false"
+                change=".onAtcFileChange"
+                uploadComplete=".onAtcUploadComplete"
+                placeholder="Drop ATC file here or click to browse"
+                width="100%"
+                class="atcUploader"
+              >
+                <u:parameters>
+                  <u:FileUploaderParameter name="role" value="atc" />
+                </u:parameters>
+              </u:FileUploader>
+              <ObjectStatus
+                id="atcFileStatus"
+                text="No file selected"
+                state="None"
+                class="sapUiTinyMarginTop"
+              />
+            </VBox>
+          </content>
+        </Panel>
+
+        <!-- ── Clone File (ATC + Clone, ATC + TUA + Clone) ───────────── -->
+        <Panel
+          id="cloneUploaderPanel"
+          class="atcCard atcFileCard sapUiSmallMarginBottom"
+          expandable="false"
+          visible="false"
+        >
+          <content>
+            <VBox class="atcCardContent">
+              <HBox alignItems="Center" class="atcSectionHeader sapUiTinyMarginBottom">
+                <core:Icon src="sap-icon://copy" class="atcSectionIcon" />
+                <Title text="Clone List" level="H5" titleStyle="H5" class="sapUiTinyMarginBegin" />
+                <ObjectStatus text="Required" state="Error" class="sapUiTinyMarginBegin atcRequiredBadge" />
+              </HBox>
+              <Label text="Clone analysis XLSX (filename starts with 'clone')" class="atcSectionSubtitle sapUiTinyMarginBottom" />
+              <u:FileUploader
+                id="cloneFileUploader"
+                name="file"
+                uploadUrl="/atc/upload"
+                fileType="xlsx,xls"
+                multiple="false"
+                uploadOnChange="false"
+                change=".onOptionalFileChange"
+                uploadComplete=".onCloneUploadComplete"
+                placeholder="Drop clone file here or click to browse"
+                width="100%"
+                class="atcUploader"
+              >
+                <u:parameters>
+                  <u:FileUploaderParameter name="role" value="clone" />
+                </u:parameters>
+              </u:FileUploader>
+              <ObjectStatus
+                id="cloneFileStatus"
+                text="No file selected"
+                state="None"
+                class="sapUiTinyMarginTop"
+              />
+            </VBox>
+          </content>
+        </Panel>
+
+        <!-- ── TUA Files (ATC + TUA, ATC + TUA + Clone, TUA Only) ──────── -->
+        <Panel
+          id="tuaUploaderPanel"
+          class="atcCard atcFileCard sapUiSmallMarginBottom"
+          expandable="false"
+          visible="false"
+        >
+          <content>
+            <VBox class="atcCardContent">
+              <HBox alignItems="Center" class="atcSectionHeader sapUiSmallMarginBottom">
+                <core:Icon src="sap-icon://database" class="atcSectionIcon" />
+                <Title text="TUA Files" level="H5" titleStyle="H5" class="sapUiTinyMarginBegin" />
+                <ObjectStatus text="SMODILOG + TRNSPACET required" state="Error" class="sapUiTinyMarginBegin atcRequiredBadge" />
+              </HBox>
+              <l:Grid defaultSpan="XL4 L4 M12 S12" class="sapUiSmallMarginTop">
+                <!-- SMODILOG -->
+                <l:content>
+                  <VBox class="atcTuaFileGroup">
+                    <Label text="SMODILOG File" required="true" class="atcFieldLabel sapUiTinyMarginBottom" />
+                    <Label text="SMODILOG export from SAP" class="atcSectionSubtitle sapUiTinyMarginBottom" />
+                    <u:FileUploader
+                      id="smodilogUploader"
+                      name="file"
+                      uploadUrl="/atc/upload"
+                      fileType="xlsx,xls"
+                      multiple="false"
+                      uploadOnChange="false"
+                      change=".onOptionalFileChange"
+                      uploadComplete=".onSmodilogUploadComplete"
+                      placeholder="Drop SMODILOG file here or click to browse"
+                      width="100%"
+                      class="atcUploader"
+                    >
+                      <u:parameters>
+                        <u:FileUploaderParameter name="role" value="smodilog" />
+                      </u:parameters>
+                    </u:FileUploader>
+                    <ObjectStatus id="smodilogStatus" text="No file selected" state="None" class="sapUiTinyMarginTop" />
+                  </VBox>
+                </l:content>
+                <!-- TRNSPACET -->
+                <l:content>
+                  <VBox class="atcTuaFileGroup">
+                    <Label text="TRNSPACET File" required="true" class="atcFieldLabel sapUiTinyMarginBottom" />
+                    <Label text="TRNSPACET export from SAP" class="atcSectionSubtitle sapUiTinyMarginBottom" />
+                    <u:FileUploader
+                      id="trnspacetUploader"
+                      name="file"
+                      uploadUrl="/atc/upload"
+                      fileType="xlsx,xls"
+                      multiple="false"
+                      uploadOnChange="false"
+                      change=".onOptionalFileChange"
+                      uploadComplete=".onTrnspacetUploadComplete"
+                      placeholder="Drop TRNSPACET file here or click to browse"
+                      width="100%"
+                      class="atcUploader"
+                    >
+                      <u:parameters>
+                        <u:FileUploaderParameter name="role" value="trnspacet" />
+                      </u:parameters>
+                    </u:FileUploader>
+                    <ObjectStatus id="trnspacetStatus" text="No file selected" state="None" class="sapUiTinyMarginTop" />
+                  </VBox>
+                </l:content>
+              </l:Grid>
+            </VBox>
+          </content>
+        </Panel>
+
+        <!-- ── Migration Type ─────────────────────────────────────────── -->
+        <Panel class="atcCard sapUiSmallMarginBottom" expandable="false">
+          <content>
+            <VBox class="atcCardContent">
+              <!-- Migration Type -->
+              <VBox class="atcOptionGroup">
+                  <HBox alignItems="Center" class="atcSectionHeader sapUiTinyMarginBottom">
+                    <core:Icon src="sap-icon://journey-change" class="atcSectionIcon" />
+                    <Title text="Migration Type" level="H5" titleStyle="H5" class="sapUiTinyMarginBegin" />
+                  </HBox>
+                  <Label text="System conversion or in-place upgrade" class="atcSectionSubtitle sapUiTinyMarginBottom" />
+                  <SegmentedButton
+                    id="migrationTypeBtn"
+                    width="400px"
+                    selectionChange=".onMigrationTypeChange"
+                    selectedItem="migConversionItem"
+                  >
+                    <items>
+                      <SegmentedButtonItem id="migConversionItem" text="Conversion (ECC → S/4HANA)" key="conversion" />
+                      <SegmentedButtonItem id="migUpgradeItem"    text="Upgrade (S/4HANA → S/4HANA)" key="upgrade"   />
+                    </items>
+                  </SegmentedButton>
+              </VBox>
+            </VBox>
+          </content>
+        </Panel>
+
+        <!-- ── Run Button ────────────────────────────────────────────── -->
+        <VBox alignItems="Center" class="sapUiMediumMarginBottom sapUiSmallMarginTop">
+          <Button
+            id="runBtn"
+            text="Run Analysis"
+            type="Emphasized"
+            icon="sap-icon://play"
+            press=".onRunAnalysis"
+            enabled="false"
+            class="atcRunBtn"
+          />
+        </VBox>
+
+        <!-- ── Status / Progress ────────────────────────────────────── -->
+        <VBox id="statusBox" visible="false" alignItems="Center" class="sapUiSmallMarginBottom atcStatusBox">
+          <BusyIndicator id="progressIndicator" size="2rem" class="sapUiSmallMarginBottom" />
+          <Text id="statusText" text="" textAlign="Center" class="atcStatusText" />
+        </VBox>
+
+        <!-- ── Error Strip ───────────────────────────────────────────── -->
+        <MessageStrip
+          id="errorStrip"
+          type="Error"
+          showIcon="true"
+          showCloseButton="true"
+          visible="false"
+          class="sapUiSmallMarginBottom"
+          close=".onCloseError"
+        />
+
+      </l:VerticalLayout>
+    </content>
+  </Page>
+</mvc:View>

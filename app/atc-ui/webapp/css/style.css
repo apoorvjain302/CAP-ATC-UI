@@ -1,0 +1,247 @@
+/* ═══════════════════════════════════════════════════════════════
+   ATC Analysis UI — Custom Styles
+   Fiori-compatible; uses SAP Horizon / Quartz token approximations
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Page background ─────────────────────────────────────────── */
+.sapMPageBgSolid {
+  background-color: #f5f6f7 !important;
+}
+
+/* ── Page wrapper ────────────────────────────────────────────── */
+.atcPageWrapper {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 1.25rem 2rem;
+  box-sizing: border-box;
+}
+
+/* ── Top header bar ─────────────────────────────────────────── */
+.atcHeaderBar {
+  background: #fff;
+  border-bottom: 1px solid #e5e5e5;
+  padding: 10px 20px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+  width: 100%;
+  box-sizing: border-box;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+/* ── Card panels ─────────────────────────────────────────────── */
+.atcCard.sapMPanel {
+  background: #ffffff;
+  border: 1px solid #e8eaec;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+}
+
+/* Remove default panel header — we render our own section header inside */
+.atcCard > .sapMPanelHdr {
+  display: none !important;
+}
+
+/* Card inner padding */
+.atcCardContent {
+  padding: 18px 20px 16px;
+}
+
+/* ── Section header row (icon + title) ──────────────────────── */
+.atcSectionHeader {
+  margin-bottom: 4px;
+}
+
+.atcSectionIcon {
+  font-size: 1rem;
+  color: #0064d9;
+  line-height: 1;
+}
+
+/* H5 inside card header */
+.atcSectionHeader .sapMTitle {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #1d2d3e;
+  line-height: 1.3;
+}
+
+/* ── Section subtitle / description ─────────────────────────── */
+.atcSectionSubtitle .sapMLabelText,
+.atcSectionSubtitle.sapMLabel .sapMLabelText {
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: #6e7e8e;
+  display: block;
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+
+/* ── Field label (above inputs) ─────────────────────────────── */
+.atcFieldLabel .sapMLabelText,
+.atcFieldLabel.sapMLabel .sapMLabelText {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #32363a;
+  display: block;
+  margin-bottom: 5px;
+}
+
+/* ── "Required" badge (ObjectStatus) ───────────────────────── */
+.atcRequiredBadge.sapMObjStatus .sapMObjStatusText {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* ── Analysis mode segmented button ─────────────────────────── */
+.atcModeBtn.sapMSegB {
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #d4d9df;
+}
+
+.atcModeBtn .sapMSegBBtn {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  padding: 0 14px;
+  min-height: 36px;
+}
+
+/* ── Option groups (Migration Type / Region side-by-side) ───── */
+.atcOptionGroup {
+  padding-right: 24px;
+  padding-bottom: 4px;
+}
+
+/* Divider between option groups */
+.atcOptionGroup + .atcOptionGroup {
+  padding-left: 24px;
+  padding-right: 0;
+  border-left: 1px solid #e8eaec;
+}
+
+/* ── Customer name input ─────────────────────────────────────── */
+.atcCustomerInput.sapMInput {
+  border-radius: 6px;
+}
+
+/* ── File uploader (drop zone) ───────────────────────────────── */
+.atcUploader.sapUiFU,
+.atcFileCard .sapUiFU {
+  border: 2px dashed #b8c6d6;
+  border-radius: 8px;
+  background-color: #f8fafc;
+  transition: background-color 0.18s ease, border-color 0.18s ease;
+  min-height: 72px;
+}
+
+.atcUploader.sapUiFU:hover,
+.atcFileCard .sapUiFU:hover,
+.atcUploader.sapUiFU.dragover,
+.atcFileCard .sapUiFU.dragover {
+  background-color: #eaf2ff;
+  border-color: #0064d9;
+}
+
+/* ── TUA file columns internal spacing ─────────────────────── */
+.atcTuaFileGroup {
+  padding-right: 16px;
+  padding-bottom: 4px;
+}
+
+/* ── Run button ─────────────────────────────────────────────── */
+.atcRunBtn.sapMBtn {
+  min-width: 240px;
+  height: 44px;
+  border-radius: 22px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  box-shadow: 0 4px 14px rgba(0, 100, 217, 0.28);
+  transition: box-shadow 0.2s ease, transform 0.1s ease;
+}
+
+.atcRunBtn.sapMBtn:hover:not([disabled]) {
+  box-shadow: 0 6px 18px rgba(0, 100, 217, 0.38);
+  transform: translateY(-1px);
+}
+
+/* ── Status box ─────────────────────────────────────────────── */
+.atcStatusBox {
+  padding: 16px;
+  background: #f0f7ff;
+  border: 1px solid #cde2ff;
+  border-radius: 10px;
+}
+
+.atcStatusText.sapMText {
+  font-size: 0.875rem;
+  color: #1a4f8a;
+  margin-top: 4px;
+}
+
+/* ── ObjectStatus "file selected" indicator ──────────────────── */
+.sapMObjStatus.sapMObjStatusSuccess .sapMObjStatusText {
+  color: #107e3e;
+}
+
+/* ── KPI Tiles (Results page) ────────────────────────────────── */
+.sapMGT {
+  border-radius: 10px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.07);
+}
+
+/* ── Chart containers ────────────────────────────────────────── */
+.sapVizFrame {
+  border: 1px solid #e0e6ed;
+  border-radius: 8px;
+}
+
+/* ── Results page panels ────────────────────────────────────── */
+.sapMPanelHdr {
+  font-weight: 600;
+  color: #1d2d3e;
+  font-size: 0.9rem;
+  letter-spacing: 0.01em;
+}
+
+/* ── Exceptions panel value text ─────────────────────────────── */
+.atcExceptionValue {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #bb0000;
+  line-height: 1.2;
+}
+
+/* ── Drag-over highlight (JS-toggled) ────────────────────────── */
+.atcDragOver {
+  background-color: #d4e8ff !important;
+  border-color: #0064d9 !important;
+}
+
+/* ── Option/toggle labels — legacy classes kept for compatibility ── */
+.atcOptionLabel .sapMLabelText {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #32363a;
+  margin-bottom: 6px;
+  display: block;
+}
+
+.atcFileLabel .sapMLabelText {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #32363a;
+  margin-bottom: 4px;
+  display: block;
+}
+
+.atcFileSubLabel .sapMLabelText {
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: #6a6d70;
+  margin-bottom: 4px;
+  display: block;
+}

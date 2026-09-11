@@ -1,0 +1,25 @@
+{
+  "xsappname": "cap-atc-ui",
+  "tenant-mode": "dedicated",
+  "description": "SAP ATC Analysis CAP Application",
+  "scopes": [
+    {
+      "name": "$XSAPPNAME.User",
+      "description": "Access ATC Analysis application"
+    }
+  ],
+  "role-templates": [
+    {
+      "name": "ATCUser",
+      "description": "ATC Analysis User",
+      "scope-references": ["$XSAPPNAME.User"]
+    }
+  ],
+  "role-collections": [
+    {
+      "name": "ATC Analysis User",
+      "description": "Full access to ATC Analysis application",
+      "role-template-references": ["$XSAPPNAME.ATCUser"]
+    }
+  ]
+}

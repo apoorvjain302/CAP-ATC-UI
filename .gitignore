@@ -1,0 +1,21 @@
+node_modules/
+gen/
+.env
+.env.*
+!.env.example
+*.log
+*.tmp
+*.sqlite
+*.db
+dist/
+.cdsrc-private.json
+default-env.json
+default-services.json
+.DS_Store
+Thumbs.db
+atc.db
+# CF build artifacts
+droplet_*.tgz
+# Large uncompressed reference data (use .gz versions instead)
+lib/tadirData.json
+lib/tfdirData.json

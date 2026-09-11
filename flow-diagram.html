@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>CAP ATC UI — In-App Classification Flow Diagram</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
+    h1 { color: #0070b1; }
+    h2 { color: #1e3a5f; margin-top: 32px; }
+    .mermaid { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 32px; }
+    .legend { background: white; padding: 16px 24px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 32px; }
+    .legend-item { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+    .legend-box { width: 18px; height: 18px; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <h1>CAP ATC UI — Complete In-App Classification Flow</h1>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-box" style="background:#0070b1"></div>Browser / UI</div>
+    <div class="legend-item"><div class="legend-box" style="background:#1e3a5f"></div>CAP Server Layer</div>
+    <div class="legend-item"><div class="legend-box" style="background:#166534"></div>OData Service (CDS)</div>
+    <div class="legend-item"><div class="legend-box" style="background:#b45309"></div>Background Processor</div>
+    <div class="legend-item"><div class="legend-box" style="background:#6b21a8"></div>In-App Classification</div>
+    <div class="legend-item"><div class="legend-box" style="background:#0e7490"></div>Output Generators</div>
+    <div class="legend-item"><div class="legend-box" style="background:#374151"></div>SQLite / DB</div>
+  </div>
+
+  <h2>Phase 1 — Upload &amp; Job Creation</h2>
+  <div class="mermaid">
+flowchart TD
+
+    subgraph BROWSER ["Browser (Vue SPA)"]
+        B1["User selects ATC .xlsx\n+ optional Clone, SMODILOG,\nTRNSPACET, NS Owner files"]
+        B2["POST /atc/upload\nmultipart/form-data"]
+        B3["POST /atc/jobs/create\n{ atcFileId, cloneFileId, customer,\nmigType, analysisMode, useAppLogic }"]
+        B4["Poll GET /api/atc/Jobs\nevery 4 seconds"]
+        BSTATUS["Display status badge\n'running → done'"]
+    end
+
+    subgraph SERVER ["server.js — Custom Express Routes\n(registered via cds.on bootstrap)"]
+        U1["Receive multipart upload"]
+        U2["INSERT atc.Files\n{ filename, mimeType, size, content }"]
+        U3["Receive job params"]
+        U4["INSERT atc.Jobs\n{ status: pending, useAppLogic, analysisMode, ... }"]
+        U5["Return { fileId }"]
+        U6["Return { jobId }"]
+    end
+
+    subgraph DB ["SQLite (local dev) / SAP HANA (CF)"]
+        DB1[("atc.Files\n─────────────\nid, filename\nmimeType, size\ncontent: LargeBinary")]
+        DB2[("atc.Jobs\n─────────────\nid, status, statusMsg\ncustomer, migType\nuseAppLogic, analysisMode\natcFileId, cloneFileId\nhcaCount, s4Count\nchartData, nsFindings")]
+    end
+
+    B1 --> B2
+    B2 --> U1
+    U1 --> U2
+    U2 --> DB1
+    DB1 -->|"fileId"| U5
+    U5 --> B3
+    B3 --> U3
+    U3 --> U4
+    U4 --> DB2
+    DB2 -->|"jobId"| U6
+    U6 --> B4
+    B4 --> BSTATUS
+
+    style B1    fill:#0070b1,color:#fff,stroke:#004f82
+    style B2    fill:#0070b1,color:#fff,stroke:#004f82
+    style B3    fill:#0070b1,color:#fff,stroke:#004f82
+    style B4    fill:#0070b1,color:#fff,stroke:#004f82
+    style BSTATUS fill:#0070b1,color:#fff,stroke:#004f82
+    style U1   fill:#1e3a5f,color:#fff,stroke:#0d2440
+    style U2   fill:#1e3a5f,color:#fff,stroke:#0d2440
+    style U3   fill:#1e3a5f,color:#fff,stroke:#0d2440
+    style U4   fill:#1e3a5f,color:#fff,stroke:#0d2440
+    style U5   fill:#1e3a5f,color:#fff,stroke:#0d2440
+    style U6   fill:#1e3a5f,color:#fff,stroke:#0d2440
+    style DB1  fill:#374151,color:#fff,stroke:#1f2937
+    style DB2  fill:#374151,color:#fff,stroke:#1f2937
+  </div>
+
+  <h2>Phase 2 — Analysis Trigger via OData</h2>
+  <div class="mermaid">
+flowchart TD
+
+    subgraph BROWSER2 ["Browser"]
+        BA["OData POST\n/api/atc/runAnalysis\n{ jobId, useTua }"]
+    end
+
+    subgraph OData ["srv/atc-service.js — CAP ApplicationService"]
+        OD1["runAnalysis action handler"]
+        OD2["UPDATE atc.Jobs SET\nstatus='running', statusMsg='Starting...'"]
+        OD3["setImmediate(\n  () => atcProcessor.processJob(jobId)\n)"]
+        OD4["Return Jobs entity immediately\n(status = 'running')"]
+    end
+
+    subgraph PROC ["atcProcessor.js (Background — outside request context)"]
+        P1["Wait for cds.db\n(20 × 500ms retry)"]
+        P2["SELECT atc.Jobs WHERE id = jobId"]
+        P3["SELECT atc.Files for\natcFile, cloneFile,\nsmodiFile, trnFile, nsOwnerFile"]
+        P4["_toBuffer(file.content)\n• Buffer passthrough\n• hex string → Buffer\n• Uint8Array → Buffer\n• Readable stream → concat"]
+    end
+
+    BA --> OD1
+    OD1 --> OD2
+    OD2 --> OD3
+    OD3 -.->|"async / non-blocking"| P1
+    OD2 --> OD4
+    P1 --> P2
+    P2 --> P3
+    P3 --> P4
+
+    style BA    fill:#0070b1,color:#fff,stroke:#004f82
+    style OD1   fill:#166534,color:#fff,stroke:#14532d
+    style OD2   fill:#166534,color:#fff,stroke:#14532d
+    style OD3   fill:#166534,color:#fff,stroke:#14532d
+    style OD4   fill:#166534,color:#fff,stroke:#14532d
+    style P1    fill:#b45309,color:#fff,stroke:#92400e
+    style P2    fill:#b45309,color:#fff,stroke:#92400e
+    style P3    fill:#b45309,color:#fff,stroke:#92400e
+    style P4    fill:#b45309,color:#fff,stroke:#92400e
+  </div>
+
+  <h2>Phase 3 — In-App Classification Pipeline (atcProcessor.js)</h2>
+  <div class="mermaid">
+flowchart TD
+
+    subgraph PREPROC ["Pre-processing"]
+        PP1["deduplicateXlsxColumns(atcBuf)\nRemove duplicate column headers\n(ABAP create_dynamic_table crash prevention)"]
+        PP2["splitXlsxRows(dedupAtcBuf, 1500)\nSplit into chunks of ≤1500 rows\nReturns Buffer[] — one per chunk"]
+    end
+
+    subgraph CHUNKLOOP ["Per-Chunk Loop (i = 0 to N-1)"]
+        CL1["XLSX.read(chunkBufs[i])\nParse chunk to JS objects\nchunkBufs[i] = null  ← free memory"]
+        CL2["sheet_to_json(ws)\nRaw rows with original column names"]
+        CL3["Normalise column headers\n_COL_CANONICAL map\n'hca/s4h?' → 'HCA/S4H?'\n'object type' → 'Obj.'  etc."]
+        CL4["atcClassify.classifyRows(\n  rows, cloneBuf, migType\n)\nWrites 7 new columns per row"]
+        CL5["allClassifiedRows.push(...rows)\nAccumulate across chunks"]
+    end
+
+    subgraph CLASSIFY ["atcClassify.js — 8-layer Decision Tree (per row)"]
+        K1{"In TADIR?\n(binary search\non sorted array)"}
+        K2{"In TFDIR?\n(binary search\non sorted array)"}
+        K3{"In Clone file?\n(Set lookup\nOBJTYPE,OBJNAME)"}
+        K4{"Hard conflict?\n_isHardConflict\n(type/length check msgs)"}
+        K5{"LCheck-Y?\n_isLCheckY\n(can be ignored msgs)"}
+        K6{"HCA / S4H\ndomain check"}
+        K7{"Fit Gap?\nFIT_GAP check msg"}
+        K8{"Syntax Error?\nSyntax check title"}
+        KOUT["Output columns written to row:\n• HCA/S4H? (X / blank)\n• Remediation Type (D1-D9)\n• Remark\n• Syntax Error? (X)\n• Fit Gap? (X)\n• Clone? (X)\n• Priority"]
+    end
+
+    subgraph POSTPROC ["Cross-chunk Propagation"]
+        PG1["propagateSyntaxError(allClassifiedRows)\nPass 1: collect object names with syntax err\nPass 2: mark ALL rows of that object"]
+        PG2["propagateFitGap(allClassifiedRows)\nSame 2-pass logic\nSkip rows already marked Syntax Error"]
+    end
+
+    subgraph METRICS ["Metrics Extraction — xlsData.readXlsDataFromRows"]
+        M1["Count: totalCount, hcaCount, s4Count\nd4AutoCount, d5AutoCount, d9AutoCount\nhcaMandatory, s4TechRemediable\nfitGapDeltaCount"]
+        M2["Build chart data structure\natcData: { byArea, byType, byPriority, ... }"]
+    end
+
+    PP1 --> PP2
+    PP2 --> CL1
+    CL1 --> CL2
+    CL2 --> CL3
+    CL3 --> CL4
+    CL4 --> K1
+    K1 -->|"Yes — SAP std"| K4
+    K1 -->|"No"| K2
+    K2 -->|"Yes — Function Module"| K4
+    K2 -->|"No"| K3
+    K3 -->|"Yes — clone obj"| KOUT
+    K3 -->|"No"| K4
+    K4 -->|"Yes — mandatory"| KOUT
+    K4 -->|"No"| K5
+    K5 -->|"Yes — ignorable"| KOUT
+    K5 -->|"No"| K6
+    K6 --> K7
+    K7 --> K8
+    K8 --> KOUT
+    KOUT --> CL5
+    CL5 -->|"next chunk"| CL1
+    CL5 -->|"all chunks done"| PG1
+    PG1 --> PG2
+    PG2 --> M1
+    M1 --> M2
+
+    style PP1  fill:#b45309,color:#fff,stroke:#92400e
+    style PP2  fill:#b45309,color:#fff,stroke:#92400e
+    style CL1  fill:#b45309,color:#fff,stroke:#92400e
+    style CL2  fill:#b45309,color:#fff,stroke:#92400e
+    style CL3  fill:#b45309,color:#fff,stroke:#92400e
+    style CL4  fill:#b45309,color:#fff,stroke:#92400e
+    style CL5  fill:#b45309,color:#fff,stroke:#92400e
+    style K1   fill:#6b21a8,color:#fff,stroke:#4a1578
+    style K2   fill:#6b21a8,color:#fff,stroke:#4a1578
+    style K3   fill:#6b21a8,color:#fff,stroke:#4a1578
+    style K4   fill:#6b21a8,color:#fff,stroke:#4a1578
+    style K5   fill:#6b21a8,color:#fff,stroke:#4a1578
+    style K6   fill:#6b21a8,color:#fff,stroke:#4a1578
+    style K7   fill:#6b21a8,color:#fff,stroke:#4a1578
+    style K8   fill:#6b21a8,color:#fff,stroke:#4a1578
+    style KOUT fill:#4c1d95,color:#fff,stroke:#3b0764
+    style PG1  fill:#6b21a8,color:#fff,stroke:#4a1578
+    style PG2  fill:#6b21a8,color:#fff,stroke:#4a1578
+    style M1   fill:#b45309,color:#fff,stroke:#92400e
+    style M2   fill:#b45309,color:#fff,stroke:#92400e
+  </div>
+
+  <h2>Phase 4 — Artifact Generation &amp; DB Storage</h2>
+  <div class="mermaid">
+flowchart TD
+
+    subgraph XLSGEN ["xlsData.buildClassifiedXlsx"]
+        X1["Serialize allClassifiedRows\nback to XLSX with 7 new columns\nallClassifiedRows.length = 0  ← free memory"]
+        X2["INSERT atc.Artifacts\nrole='atc_result'\natc_classified_YYYYMMDD.xlsx"]
+    end
+
+    subgraph TUAGEN ["excelGen.js — TUA Analysis (if useTua + smodiFile + trnFile)"]
+        T1["readExcelRows(smodiFile, 24)\nreadExcelRows(trnFile, 11)"]
+        T2["buildMasterMap(nsOwnerRows)\nNamespace → owner map"]
+        T3["Z*/Y* validation warning\nSMODILOG should not have Z objects"]
+        T4["computeNsFindings\nUnmaintained + no-owner namespaces"]
+        T5["computeSpddSpau\nCount SPDD + SPAU objects"]
+        T6["writeTua(template, ...)\nPopulate TUA_Analysis.xlsx"]
+        T7["INSERT atc.Artifacts\nrole='tua'\nTUA_Analysis_YYYYMMDD.xlsx"]
+    end
+
+    subgraph PPTXGEN ["pptxGen.js — PowerPoint"]
+        P1["_loadTemplate('template.pptx')\nRead from db/templates/\n(case-insensitive fallback)"]
+        P2["JSZip.loadAsync(templateBuf)\nOpen as ZIP (PPTX = ZIP of XMLs)"]
+        P3["Patch slide 4 — HCA/S4H pie chart XML\nPatch slide 5 — Remediation bar chart XML\nPatch slide 6 — Summary tiles (counts)\nPatch slide 7 — TUA SPDD/SPAU"]
+        P4["zip.generateAsync({ type: 'nodebuffer' })\nLossless ZIP regeneration"]
+        P5["INSERT atc.Artifacts\nrole='pptx'\natc_presentation_YYYYMMDD.pptx"]
+    end
+
+    subgraph ESTGEN ["excelGen.writeEstimation — Effort Estimation"]
+        E1["_loadTemplate('Estimation Template.xlsx')"]
+        E2["Write hcaMandatory → cell C4\nWrite s4TechRemediable → cell C5\nAll formulas preserved (template-based)"]
+        E3["INSERT atc.Artifacts\nrole='estimation'\neffort_estimation_YYYYMMDD.xlsx"]
+    end
+
+    subgraph FINALIZE ["Finalize Job"]
+        F1["UPDATE atc.Jobs SET\nstatus='done'\ntotalCount, hcaCount, s4Count\nspddCount, spauCount\nfitGapDeltaCount\nchartData (JSON string)\nnsFindings (JSON string)"]
+    end
+
+    X1 --> X2
+    X2 --> T1
+    T1 --> T2
+    T2 --> T3
+    T3 --> T4
+    T4 --> T5
+    T5 --> T6
+    T6 --> T7
+    T7 --> P1
+    P1 --> P2
+    P2 --> P3
+    P3 --> P4
+    P4 --> P5
+    P5 --> E1
+    E1 --> E2
+    E2 --> E3
+    E3 --> F1
+
+    style X1 fill:#0e7490,color:#fff,stroke:#0c5870
+    style X2 fill:#0e7490,color:#fff,stroke:#0c5870
+    style T1 fill:#0e7490,color:#fff,stroke:#0c5870
+    style T2 fill:#0e7490,color:#fff,stroke:#0c5870
+    style T3 fill:#c2410c,color:#fff,stroke:#9a3008
+    style T4 fill:#0e7490,color:#fff,stroke:#0c5870
+    style T5 fill:#0e7490,color:#fff,stroke:#0c5870
+    style T6 fill:#0e7490,color:#fff,stroke:#0c5870
+    style T7 fill:#0e7490,color:#fff,stroke:#0c5870
+    style P1 fill:#0e7490,color:#fff,stroke:#0c5870
+    style P2 fill:#0e7490,color:#fff,stroke:#0c5870
+    style P3 fill:#0e7490,color:#fff,stroke:#0c5870
+    style P4 fill:#0e7490,color:#fff,stroke:#0c5870
+    style P5 fill:#0e7490,color:#fff,stroke:#0c5870
+    style E1 fill:#0e7490,color:#fff,stroke:#0c5870
+    style E2 fill:#0e7490,color:#fff,stroke:#0c5870
+    style E3 fill:#0e7490,color:#fff,stroke:#0c5870
+    style F1 fill:#374151,color:#fff,stroke:#1f2937
+  </div>
+
+  <h2>Phase 5 — Polling &amp; Results Display</h2>
+  <div class="mermaid">
+flowchart TD
+
+    subgraph POLL ["Browser — OData Polling (every 4s)"]
+        PL1["GET /api/atc/Jobs(jobId)\n? $select=status,statusMsg,hcaCount,s4Count,...\n(chartData excluded from projection)"]
+        PL2{{"status?"}}
+        PL3["Show spinner +\nstatusMsg text"]
+        PL4["Job done — stop polling"]
+    end
+
+    subgraph CHART ["Chart Data Fetch"]
+        CD1["GET /api/atc/getChartData()\nCAP Function → SELECT chartData\nReturns raw JSON string"]
+        CD2["JSON.parse(chartData)\nBuild Chart.js datasets\n• HCA/S4H pie\n• Remediation type bar\n• Priority distribution"]
+    end
+
+    subgraph DOWNLOAD ["Artifact Download"]
+        DL1["GET /atc/download/:artifactId\nStreams LargeBinary content\nContent-Disposition: attachment"]
+        DL2["GET /atc/downloadAll/:jobId\nZips all artifacts for job\nSaves as atc_results_JOBID.zip"]
+    end
+
+    subgraph DISPLAY ["UI Display"]
+        DS1["Summary tiles\nHCA: N | S4H: N | Total: N"]
+        DS2["Charts rendered via Chart.js"]
+        DS3["Download buttons per artifact\n• ATC Classified.xlsx\n• TUA_Analysis.xlsx\n• Presentation.pptx\n• Effort Estimation.xlsx"]
+    end
+
+    PL1 --> PL2
+    PL2 -->|"running"| PL3
+    PL3 -->|"4s wait"| PL1
+    PL2 -->|"done"| PL4
+    PL4 --> CD1
+    CD1 --> CD2
+    CD2 --> DS1
+    CD2 --> DS2
+    PL4 --> DS3
+    DS3 --> DL1
+    DS3 --> DL2
+
+    style PL1 fill:#0070b1,color:#fff,stroke:#004f82
+    style PL2 fill:#c2410c,color:#fff,stroke:#9a3008
+    style PL3 fill:#0070b1,color:#fff,stroke:#004f82
+    style PL4 fill:#0070b1,color:#fff,stroke:#004f82
+    style CD1 fill:#166534,color:#fff,stroke:#14532d
+    style CD2 fill:#0070b1,color:#fff,stroke:#004f82
+    style DL1 fill:#1e3a5f,color:#fff,stroke:#0d2440
+    style DL2 fill:#1e3a5f,color:#fff,stroke:#0d2440
+    style DS1 fill:#0070b1,color:#fff,stroke:#004f82
+    style DS2 fill:#0070b1,color:#fff,stroke:#004f82
+    style DS3 fill:#0070b1,color:#fff,stroke:#004f82
+  </div>
+
+  <h2>Reference Data Architecture — atcClassify.js</h2>
+  <div class="mermaid">
+flowchart TD
+
+    subgraph STARTUP ["Server Startup — cds.on served"]
+        ST1["atcClassify.preloadRefSets()\nCalled once after CAP bootstrap"]
+        ST2["Load TADIR reference data\nfrom db/data/TADIR_SET.json.gz\nor TADIR_SET.json"]
+        ST3["Load TFDIR reference data\nfrom db/data/TFDIR_SET.json.gz\nor TFDIR_SET.json"]
+        ST4["SortedArray wraps each dataset\n.has(key) uses _bsearch()\nO(log n) vs O(1) Set\nbut ~4× less memory"]
+    end
+
+    subgraph CLONESET ["Per-Job — Clone File Processing"]
+        CS1["cloneFile LargeBinary → Buffer"]
+        CS2["XLSX.read(cloneBuf)\nParse clone file rows"]
+        CS3["buildCloneSet(cloneRows)\n_CLONE_TYPE_MAP normalises\ntype codes from various export formats"]
+        CS4["Set of 'OBJTYPE,OBJNAME' strings\nBuilt fresh per job\nUsed in K3 lookup"]
+    end
+
+    subgraph REFDATA ["Reference Data Sources"]
+        RD1[("TADIR_SET\n────────────\nSAP standard repository objects\nFormat: PGMID,OBJECT,OBJ_NAME\nExported from SAP TADIR table")]
+        RD2[("TFDIR_SET\n────────────\nSAP function module directory\nFormat: FUNCNAME\nExported from SAP TFDIR table")]
+        RD3[("Clone file (per job)\n────────────────────\nCustomer-specific clone objects\nExported from SE01/SE09\nor custom clone report")]
+    end
+
+    ST1 --> ST2
+    ST1 --> ST3
+    ST2 --> ST4
+    ST3 --> ST4
+    ST4 --> RD1
+    ST4 --> RD2
+    CS1 --> CS2
+    CS2 --> CS3
+    CS3 --> CS4
+    CS4 --> RD3
+
+    style ST1 fill:#1e3a5f,color:#fff,stroke:#0d2440
+    style ST2 fill:#1e3a5f,color:#fff,stroke:#0d2440
+    style ST3 fill:#1e3a5f,color:#fff,stroke:#0d2440
+    style ST4 fill:#6b21a8,color:#fff,stroke:#4a1578
+    style CS1 fill:#b45309,color:#fff,stroke:#92400e
+    style CS2 fill:#b45309,color:#fff,stroke:#92400e
+    style CS3 fill:#6b21a8,color:#fff,stroke:#4a1578
+    style CS4 fill:#6b21a8,color:#fff,stroke:#4a1578
+    style RD1 fill:#374151,color:#fff,stroke:#1f2937
+    style RD2 fill:#374151,color:#fff,stroke:#1f2937
+    style RD3 fill:#374151,color:#fff,stroke:#1f2937
+  </div>
+
+  <h2>CAP Framework Architecture — Key Patterns Used</h2>
+  <div class="mermaid">
+flowchart LR
+
+    subgraph CDS ["CDS Data Model — db/schema.cds"]
+        CDS1["entity Jobs : managed\n• status, statusMsg\n• chartData: LargeString\n• nsFindings: LargeString\n• hcaCount, s4Count, ..."]
+        CDS2["entity Files\n• content: LargeBinary\n• @cds.on.insert: $now"]
+        CDS3["entity Artifacts\n• content: LargeBinary\n• role (atc_result/tua/pptx/estimation)"]
+    end
+
+    subgraph SRV ["OData Service — srv/atc-service.cds"]
+        SRV1["service ATCService at '/api/atc'"]
+        SRV2["Jobs projection\nexcluding { chartData }\n(keeps OData payload small)"]
+        SRV3["action runAnalysis(useTua) returns Jobs"]
+        SRV4["function getChartData() returns String"]
+        SRV5["Artifacts projection\nexcluding { content }"]
+    end
+
+    subgraph SRVJS ["Service Handler — srv/atc-service.js"]
+        JS1["class ATCService\nextends cds.ApplicationService"]
+        JS2["this.on('runAnalysis', handler)\nthis.on('getChartData', handler)"]
+        JS3["await super.init()\nMust be LAST line — registers\nCAP generic OData handlers"]
+    end
+
+    subgraph BOOT ["Bootstrap — server.js"]
+        BT1["cds.on('bootstrap', app => {\n  app.use('/atc/upload', ...)\n  app.use('/atc/jobs/create', ...)\n  app.use('/atc/download/:id', ...)\n  app.use('/atc/downloadAll/:jobId', ...)\n})"]
+        BT2["cds.on('served', async () => {\n  await atcClassify.preloadRefSets()\n})"]
+        BT3["module.exports = cds.server\nHands control back to CAP runtime"]
+    end
+
+    CDS1 --> SRV2
+    CDS2 --> SRV2
+    CDS3 --> SRV5
+    SRV1 --> SRV2
+    SRV1 --> SRV3
+    SRV1 --> SRV4
+    SRV2 --> JS2
+    SRV3 --> JS2
+    SRV4 --> JS2
+    JS1 --> JS3
+    BT1 --> BT2
+    BT2 --> BT3
+
+    style CDS1 fill:#374151,color:#fff,stroke:#1f2937
+    style CDS2 fill:#374151,color:#fff,stroke:#1f2937
+    style CDS3 fill:#374151,color:#fff,stroke:#1f2937
+    style SRV1 fill:#166534,color:#fff,stroke:#14532d
+    style SRV2 fill:#166534,color:#fff,stroke:#14532d
+    style SRV3 fill:#166534,color:#fff,stroke:#14532d
+    style SRV4 fill:#166534,color:#fff,stroke:#14532d
+    style SRV5 fill:#166534,color:#fff,stroke:#14532d
+    style JS1  fill:#1e3a5f,color:#fff,stroke:#0d2440
+    style JS2  fill:#1e3a5f,color:#fff,stroke:#0d2440
+    style JS3  fill:#c2410c,color:#fff,stroke:#9a3008
+    style BT1  fill:#1e3a5f,color:#fff,stroke:#0d2440
+    style BT2  fill:#1e3a5f,color:#fff,stroke:#0d2440
+    style BT3  fill:#1e3a5f,color:#fff,stroke:#0d2440
+  </div>
+
+  <script>mermaid.initialize({ startOnLoad: true, theme: 'default' });</script>
+</body>
+</html>

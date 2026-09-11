@@ -1,0 +1,21 @@
+---
+applications:
+  - name: cap-atc-ui
+    random-route: false
+    routes:
+      - route: cap-atc-ui-gdh.cfapps.eu10-005.hana.ondemand.com
+    path: .
+    buildpack: nodejs_buildpack
+    memory: 1024M
+    disk_quota: 1024M
+    instances: 1
+    command: npm start
+    env:
+      NODE_MODULES_CACHE: false
+      SAP_CLIENT: "100"
+      SAP_DESTINATION: i10_ATC
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"
+    services:
+      - atc-destination-service
+      - atc-connectivity-service
+      - atc-xsuaa-service

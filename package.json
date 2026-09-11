@@ -1,0 +1,64 @@
+{
+  "name": "cap-atc-ui",
+  "version": "1.0.0",
+  "description": "SAP ATC Analysis CAP Application with SAPUI5 Frontend",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node --max-old-space-size=920 node_modules/@sap/cds/bin/serve.js",
+    "dev": "cds watch",
+    "build": "node scripts/buildPreload.js && cds build --production",
+    "test": "jest --passWithNoTests"
+  },
+  "dependencies": {
+    "@cap-js/sqlite": "^1",
+    "@sap/cds": "^8",
+    "@sap/xssec": "^4",
+    "archiver": "^7",
+    "better-sqlite3": "^12.11.1",
+    "dotenv": "^16",
+    "express": "^4",
+    "form-data": "^4",
+    "hdb": "^0.19",
+    "http-proxy-agent": "^7.0.2",
+    "https-proxy-agent": "^7",
+    "jszip": "^3",
+    "multer": "^1",
+    "node-fetch": "^3",
+    "passport": "^0.7",
+    "xlsx": "^0.18"
+  },
+  "cds": {
+    "requires": {
+      "db": {
+        "kind": "sqlite",
+        "credentials": {
+          "database": "atc.db"
+        }
+      },
+      "auth": {
+        "kind": "dummy"
+      }
+    },
+    "fiori": {
+      "lean_draft": true
+    },
+    "build": {
+      "target": "gen",
+      "tasks": [
+        {
+          "for": "hana",
+          "src": "db"
+        },
+        {
+          "for": "nodejs",
+          "src": "srv"
+        }
+      ]
+    },
+    "features": {
+      "fiori_preview": false
+    }
+  }
+}

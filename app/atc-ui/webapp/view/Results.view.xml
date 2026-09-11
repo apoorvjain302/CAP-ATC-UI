@@ -1,0 +1,371 @@
+<mvc:View
+  controllerName="com.sap.atcanalysis.controller.Results"
+  xmlns:mvc="sap.ui.core.mvc"
+  xmlns="sap.m"
+  xmlns:l="sap.ui.layout"
+  xmlns:core="sap.ui.core"
+  xmlns:viz="sap.viz.ui5.controls"
+  xmlns:feeds="sap.viz.ui5.controls.common.feeds"
+  xmlns:vizData="sap.viz.ui5.data"
+  displayBlock="true"
+>
+  <Page
+    id="resultsPage"
+    showHeader="false"
+    backgroundDesign="Solid"
+  >
+    <content>
+      <!-- ── Top Header Bar ──────────────────────────────────────────── -->
+      <HBox
+        justifyContent="SpaceBetween"
+        alignItems="Center"
+        class="atcHeaderBar"
+      >
+        <HBox alignItems="Center">
+          <Button
+            icon="sap-icon://nav-back"
+            press=".onNavBack"
+            type="Transparent"
+          />
+          <Image src="./img/sap_logo.svg" height="28px" alt="SAP Logo" class="sapUiTinyMarginEnd" />
+          <Title text="Conversion Assessment Tool" level="H4" titleStyle="H4" />
+        </HBox>
+        <HBox alignItems="Center">
+          <Button
+            id="downloadAllBtn"
+            text="Download All (ZIP)"
+            icon="sap-icon://download"
+            type="Emphasized"
+            press=".onDownloadAll"
+            visible="false"
+          />
+        </HBox>
+      </HBox>
+
+      <l:VerticalLayout width="100%" class="sapUiSmallMarginTop sapUiSmallMarginBeginEnd">
+
+        <!-- ── Loading / Error state ─────────────────────────────────── -->
+        <BusyIndicator id="loadingIndicator" size="2rem" class="sapUiMediumMarginTop" />
+        <MessageStrip
+          id="errorStrip"
+          type="Error"
+          showIcon="true"
+          visible="false"
+          class="sapUiSmallMarginBottom"
+        />
+
+        <!-- ── Summary KPI Panel ──────────────────────────────────────── -->
+        <Panel
+          id="summaryPanel"
+          visible="false"
+          headerText="Analysis Summary"
+          expandable="true"
+          expanded="true"
+          class="sapUiSmallMarginBottom"
+        >
+          <content>
+            <l:Grid defaultSpan="XL2 L3 M6 S12" class="sapUiSmallMarginTop sapUiSmallMarginBottom">
+              <l:content>
+                <GenericTile
+                  header="Total ATC Impacts"
+                  subheader="All findings"
+                  class="sapUiTinyMarginEnd"
+                >
+                  <tileContent>
+                    <TileContent>
+                      <content>
+                        <NumericContent
+                          id="totalCountTile"
+                          value="0"
+                          scale=""
+                          valueColor="None"
+                          indicator="None"
+                          truncateValueTo="6"
+                        />
+                      </content>
+                    </TileContent>
+                  </tileContent>
+                </GenericTile>
+              </l:content>
+              <l:content>
+                <GenericTile
+                  header="HCA Impacts"
+                  subheader="HANA Code Adaptation"
+                  class="sapUiTinyMarginEnd"
+                >
+                  <tileContent>
+                    <TileContent>
+                      <content>
+                        <NumericContent
+                          id="hcaCountTile"
+                          value="0"
+                          valueColor="Critical"
+                          truncateValueTo="6"
+                        />
+                      </content>
+                    </TileContent>
+                  </tileContent>
+                </GenericTile>
+              </l:content>
+              <l:content>
+                <GenericTile
+                  header="S/4HANA Impacts"
+                  subheader="S/4HANA Impact"
+                  class="sapUiTinyMarginEnd"
+                >
+                  <tileContent>
+                    <TileContent>
+                      <content>
+                        <NumericContent
+                          id="s4CountTile"
+                          value="0"
+                          valueColor="Critical"
+                          truncateValueTo="6"
+                        />
+                      </content>
+                    </TileContent>
+                  </tileContent>
+                </GenericTile>
+              </l:content>
+              <l:content>
+                <GenericTile
+                  header="SPDD"
+                  subheader="Dictionary Adjustments"
+                  class="sapUiTinyMarginEnd"
+                >
+                  <tileContent>
+                    <TileContent>
+                      <content>
+                        <NumericContent
+                          id="spddTile"
+                          value="0"
+                          scale=""
+                          valueColor="None"
+                          indicator="None"
+                          truncateValueTo="6"
+                        />
+                      </content>
+                    </TileContent>
+                  </tileContent>
+                </GenericTile>
+              </l:content>
+              <l:content>
+                <GenericTile
+                  header="SPAU"
+                  subheader="Object Adjustments"
+                  class="sapUiTinyMarginEnd"
+                >
+                  <tileContent>
+                    <TileContent>
+                      <content>
+                        <NumericContent
+                          id="spauTile"
+                          value="0"
+                          scale=""
+                          valueColor="None"
+                          indicator="None"
+                          truncateValueTo="6"
+                        />
+                      </content>
+                    </TileContent>
+                  </tileContent>
+                </GenericTile>
+              </l:content>
+            </l:Grid>
+          </content>
+        </Panel>
+
+        <!-- ── Charts Row 1: Slide 4 (Object Types) + Slide 5 (Remediation) ── -->
+        <Panel
+          id="chartsPanel1"
+          visible="false"
+          headerText="Object Classification"
+          expandable="true"
+          expanded="false"
+          class="sapUiSmallMarginBottom"
+        >
+          <content>
+            <l:Grid defaultSpan="XL6 L6 M12 S12">
+              <l:content>
+                <Label text="Unique Impacted Object Types" design="Bold" textAlign="Center" width="100%" class="sapUiTinyMarginBottom" />
+                <viz:VizFrame
+                  id="slide4Chart"
+                  uiConfig="{applicationSet: 'fiori'}"
+                  vizType="bar"
+                  height="400px"
+                  width="100%"
+                >
+                  <viz:dataset>
+                    <vizData:FlattenedDataset id="slide4Dataset">
+                      <vizData:dimensions>
+                        <vizData:DimensionDefinition name="Type" value="{type}" />
+                      </vizData:dimensions>
+                      <vizData:measures>
+                        <vizData:MeasureDefinition name="Objects" value="{count}" />
+                      </vizData:measures>
+                    </vizData:FlattenedDataset>
+                  </viz:dataset>
+                  <viz:feeds>
+                    <feeds:FeedItem uid="categoryAxis" type="Dimension" values="Type"    />
+                    <feeds:FeedItem uid="valueAxis"    type="Measure"   values="Objects" />
+                  </viz:feeds>
+                </viz:VizFrame>
+              </l:content>
+              <l:content>
+                <Label text="Remediation Categories (Unique Objects)" design="Bold" textAlign="Center" width="100%" class="sapUiTinyMarginBottom" />
+                <viz:VizFrame
+                  id="slide5Chart"
+                  uiConfig="{applicationSet: 'fiori'}"
+                  vizType="bar"
+                  height="400px"
+                  width="100%"
+                >
+                  <viz:dataset>
+                    <vizData:FlattenedDataset id="slide5Dataset">
+                      <vizData:dimensions>
+                        <vizData:DimensionDefinition name="Category" value="{category}" />
+                      </vizData:dimensions>
+                      <vizData:measures>
+                        <vizData:MeasureDefinition name="Count" value="{count}" />
+                      </vizData:measures>
+                    </vizData:FlattenedDataset>
+                  </viz:dataset>
+                  <viz:feeds>
+                    <feeds:FeedItem uid="categoryAxis" type="Dimension" values="Category" />
+                    <feeds:FeedItem uid="valueAxis"    type="Measure"   values="Count"    />
+                  </viz:feeds>
+                </viz:VizFrame>
+              </l:content>
+            </l:Grid>
+          </content>
+        </Panel>
+
+        <!-- ── Charts Row 2: HCA + S/4H waterfall ────────────────────── -->
+        <Panel
+          id="chartsPanel2"
+          visible="false"
+          headerText="Impact Breakdown"
+          expandable="true"
+          expanded="false"
+          class="sapUiSmallMarginBottom"
+        >
+          <content>
+            <l:Grid defaultSpan="XL6 L6 M12 S12">
+              <l:content>
+                <Label id="hcaChartLabel" text="" design="Bold" textAlign="Center" width="100%" class="sapUiTinyMarginBottom" />
+                <viz:VizFrame
+                  id="hcaChart"
+                  uiConfig="{applicationSet: 'fiori'}"
+                  vizType="bar"
+                  height="380px"
+                  width="100%"
+                >
+                  <viz:dataset>
+                    <vizData:FlattenedDataset id="hcaDataset">
+                      <vizData:dimensions>
+                        <vizData:DimensionDefinition name="Category" value="{category}" />
+                      </vizData:dimensions>
+                      <vizData:measures>
+                        <vizData:MeasureDefinition name="Count" value="{count}" />
+                      </vizData:measures>
+                    </vizData:FlattenedDataset>
+                  </viz:dataset>
+                  <viz:feeds>
+                    <feeds:FeedItem uid="categoryAxis" type="Dimension" values="Category" />
+                    <feeds:FeedItem uid="valueAxis"    type="Measure"   values="Count"    />
+                  </viz:feeds>
+                </viz:VizFrame>
+              </l:content>
+              <l:content>
+                <Label id="s4hChartLabel" text="" design="Bold" textAlign="Center" width="100%" class="sapUiTinyMarginBottom" />
+                <viz:VizFrame
+                  id="s4hChart"
+                  uiConfig="{applicationSet: 'fiori'}"
+                  vizType="bar"
+                  height="380px"
+                  width="100%"
+                >
+                  <viz:dataset>
+                    <vizData:FlattenedDataset id="s4hDataset">
+                      <vizData:dimensions>
+                        <vizData:DimensionDefinition name="Category" value="{category}" />
+                      </vizData:dimensions>
+                      <vizData:measures>
+                        <vizData:MeasureDefinition name="Count" value="{count}" />
+                      </vizData:measures>
+                    </vizData:FlattenedDataset>
+                  </viz:dataset>
+                  <viz:feeds>
+                    <feeds:FeedItem uid="categoryAxis" type="Dimension" values="Category" />
+                    <feeds:FeedItem uid="valueAxis"    type="Measure"   values="Count"    />
+                  </viz:feeds>
+                </viz:VizFrame>
+              </l:content>
+            </l:Grid>
+          </content>
+        </Panel>
+
+        <!-- ── Exceptions Panel ──────────────────────────────────────── -->
+        <Panel
+          id="exceptionsPanel"
+          visible="false"
+          headerText="Exceptions"
+          expandable="true"
+          expanded="true"
+          class="sapUiSmallMarginBottom"
+        >
+          <content>
+            <l:Grid defaultSpan="XL6 L6 M12 S12" class="sapUiSmallMarginTop sapUiSmallMarginBottom sapUiSmallMarginBeginEnd">
+              <l:content>
+                <VBox class="sapUiSmallMarginBottom">
+                  <Label text="Fit Gap Delta (Manual Check → Fit Gap)" design="Bold" class="sapUiTinyMarginBottom" />
+                  <Text id="exceptionFitGapDelta" text="0" class="atcExceptionValue" />
+                </VBox>
+              </l:content>
+              <l:content>
+                <VBox class="sapUiSmallMarginBottom">
+                  <Label text="Unmaintained Namespaces (Manual Check)" design="Bold" class="sapUiTinyMarginBottom" />
+                  <Label text="Present in SMODILOG but not declared in TRNSPACET" class="sapUiTinyMarginBottom" />
+                  <List
+                    id="unmaintainedNsList"
+                    noDataText="None ✓"
+                    showNoData="true"
+                    class="sapUiTinyMarginTop"
+                  />
+                </VBox>
+              </l:content>
+            </l:Grid>
+          </content>
+        </Panel>
+
+        <!-- ── Downloads Panel ───────────────────────────────────────── -->
+        <Panel
+          id="downloadsPanel"
+          visible="false"
+          headerText="Generated Files"
+          expandable="true"
+          expanded="false"
+          class="sapUiSmallMarginBottom"
+        >
+          <content>
+            <List id="artifactsList" class="sapUiSmallMarginTop">
+              <items>
+                <CustomListItem id="artifactItemTemplate" visible="false" />
+              </items>
+            </List>
+            <HBox justifyContent="Center" class="sapUiSmallMarginTop sapUiSmallMarginBottom">
+              <Button
+                id="downloadAllBtn2"
+                text="Download All Files as ZIP"
+                icon="sap-icon://download"
+                type="Emphasized"
+                press=".onDownloadAll"
+              />
+            </HBox>
+          </content>
+        </Panel>
+
+      </l:VerticalLayout>
+    </content>
+  </Page>
+</mvc:View>

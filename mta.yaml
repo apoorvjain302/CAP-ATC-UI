@@ -1,0 +1,58 @@
+ID: cap-atc-ui
+_schema-version: "3.3.0"
+version: 1.0.0
+description: SAP ATC Analysis CAP Application
+
+modules:
+  - name: cap-atc-ui-srv
+    type: nodejs
+    path: .
+    parameters:
+      buildpack: nodejs_buildpack
+      memory: 768M
+      disk-quota: 1024M
+    build-parameters:
+      builder: npm-ci
+      build-result: .
+      ignore:
+        - node_modules/
+        - .env
+        - .cdsrc-private.json
+    requires:
+      - name: cap-atc-xsuaa
+      - name: cap-atc-dest
+      - name: cap-atc-conn
+      - name: cap-atc-hana
+    properties:
+      NODE_MODULES_CACHE: false
+      SAP_DESTINATION: I10_ATC
+      SAP_CLIENT: "100"
+
+resources:
+  - name: cap-atc-xsuaa
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: xsuaa
+      service-plan: application
+      path: ./xs-security.json
+      config:
+        xsappname: cap-atc-ui
+        tenant-mode: dedicated
+
+  - name: cap-atc-dest
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: destination
+      service-plan: lite
+
+  - name: cap-atc-conn
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: connectivity
+      service-plan: lite
+
+  - name: cap-atc-hana
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: hana
+      service-plan: hdi-shared
