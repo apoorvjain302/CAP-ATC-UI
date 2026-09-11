@@ -39,6 +39,11 @@
       },
       "auth": {
         "kind": "dummy"
+      },
+      "[production]": {
+        "auth": {
+          "kind": "xsuaa"
+        }
       }
     },
     "fiori": {

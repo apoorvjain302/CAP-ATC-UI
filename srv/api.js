@@ -82,8 +82,10 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-const cds        = require("@sap/cds");
-const multer     = require("multer");
+const cds          = require("@sap/cds");
+const multer       = require("multer");
+const passport     = require("passport");
+const xssec        = require("@sap/xssec");
 const atcProcessor = require("../lib/atcProcessor");
 
 const upload = multer({
@@ -126,14 +128,59 @@ async function _toBuffer(val) {
   return Buffer.from(String(val), "hex");
 }
 
-// ── API key middleware ─────────────────────────────────────────────────────────
-function _apiKeyGuard(req, res, next) {
-  const expectedKey = process.env.API_KEY;
-  if (!expectedKey) return next();  // no key configured → open
-  const provided = req.headers["x-api-key"];
-  if (!provided || provided !== expectedKey) {
-    return res.status(401).json({ error: "Missing or invalid X-API-Key header" });
+// ── Auth middleware ────────────────────────────────────────────────────────────
+// Priority: 1) XSUAA Bearer token  2) API key (legacy fallback)
+//
+// On CF the VCAP_SERVICES.xsuaa credentials are picked up automatically.
+// Locally (no XSUAA binding) the API_KEY env var is the only guard.
+
+function _buildXsuaaStrategy() {
+  try {
+    const vcap = JSON.parse(process.env.VCAP_SERVICES || "{}");
+    const creds = vcap.xsuaa?.[0]?.credentials;
+    if (!creds) return null;
+    return new xssec.JWTStrategy(creds);
+  } catch (_) {
+    return null;
   }
+}
+
+const _xsuaaStrategy = _buildXsuaaStrategy();
+if (_xsuaaStrategy) {
+  passport.use("JWT", _xsuaaStrategy);
+  console.log("[API] XSUAA JWT auth enabled");
+} else {
+  console.log("[API] No XSUAA binding found — falling back to API key auth");
+}
+
+function _authGuard(req, res, next) {
+  // ── Try XSUAA Bearer token first ──────────────────────────────────────────
+  if (_xsuaaStrategy && req.headers.authorization?.startsWith("Bearer ")) {
+    return passport.authenticate("JWT", { session: false }, (err, user) => {
+      if (err || !user) {
+        return res.status(401).json({ error: "Invalid or expired Bearer token" });
+      }
+      // Check the Analyze scope
+      if (!user.checkScope(`${user.xsappname}.Analyze`) &&
+          !user.checkScope(`${user.xsappname}.User`)) {
+        return res.status(403).json({ error: "Insufficient scope — requires Analyze or User scope" });
+      }
+      req.user = user;
+      return next();
+    })(req, res, next);
+  }
+
+  // ── Fallback: API key ──────────────────────────────────────────────────────
+  const expectedKey = process.env.API_KEY;
+  if (expectedKey) {
+    const provided = req.headers["x-api-key"];
+    if (!provided || provided !== expectedKey) {
+      return res.status(401).json({ error: "Missing or invalid X-API-Key header" });
+    }
+    return next();
+  }
+
+  // No auth configured at all — open (dev/internal use)
   next();
 }
 
@@ -172,11 +219,13 @@ function _counts(job) {
 
 // ── Register routes on an Express app instance ────────────────────────────────
 function register(app) {
+  // Initialize passport (required even when using authenticate() directly)
+  app.use(passport.initialize());
 
   // ── POST /api/v1/analyze ──────────────────────────────────────────────────
   app.post(
     "/api/v1/analyze",
-    _apiKeyGuard,
+    _authGuard,
     upload.fields(FILE_FIELDS),
     async (req, res) => {
       try {
@@ -294,7 +343,7 @@ function register(app) {
   );
 
   // ── GET /api/v1/analyze/:jobId — poll job status ─────────────────────────
-  app.get("/api/v1/analyze/:jobId", _apiKeyGuard, async (req, res) => {
+  app.get("/api/v1/analyze/:jobId", _authGuard, async (req, res) => {
     try {
       const db = await _db();
       const [job] = await db.run(SELECT.from("atc.Jobs").where({ id: req.params.jobId }));
@@ -326,7 +375,7 @@ function register(app) {
   });
 
   // ── GET /api/v1/analyze/:jobId/download/:role — stream artifact file ──────
-  app.get("/api/v1/analyze/:jobId/download/:role", _apiKeyGuard, async (req, res) => {
+  app.get("/api/v1/analyze/:jobId/download/:role", _authGuard, async (req, res) => {
     try {
       const db = await _db();
       const { jobId, role } = req.params;

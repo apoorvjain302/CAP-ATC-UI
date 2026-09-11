@@ -5,21 +5,35 @@
   "scopes": [
     {
       "name": "$XSAPPNAME.User",
-      "description": "Access ATC Analysis application"
+      "description": "Access ATC Analysis UI application"
+    },
+    {
+      "name": "$XSAPPNAME.Analyze",
+      "description": "Call the external REST API (/api/v1/analyze) to run ATC analysis"
     }
   ],
   "role-templates": [
     {
       "name": "ATCUser",
-      "description": "ATC Analysis User",
+      "description": "ATC Analysis UI user — access the web application",
       "scope-references": ["$XSAPPNAME.User"]
+    },
+    {
+      "name": "ATCApiConsumer",
+      "description": "External API consumer — call /api/v1/analyze programmatically",
+      "scope-references": ["$XSAPPNAME.Analyze"]
     }
   ],
   "role-collections": [
     {
       "name": "ATC Analysis User",
-      "description": "Full access to ATC Analysis application",
+      "description": "Full access to ATC Analysis web application",
       "role-template-references": ["$XSAPPNAME.ATCUser"]
+    },
+    {
+      "name": "ATC API Consumer",
+      "description": "Programmatic access to the ATC Analysis REST API",
+      "role-template-references": ["$XSAPPNAME.ATCApiConsumer"]
     }
   ]
 }

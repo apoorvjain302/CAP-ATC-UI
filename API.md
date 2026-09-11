@@ -16,15 +16,66 @@ https://cap-atc-ui-gdh.cfapps.eu10-005.hana.ondemand.com
 
 ## Authentication
 
-Every request to `/api/v1/analyze` must include the API key in the request header:
+The API supports two authentication methods. **OAuth 2.0 Bearer token is recommended** for all production integrations.
 
+### Method 1 — OAuth 2.0 Bearer Token (Recommended)
+
+Uses SAP XSUAA (the BTP OAuth 2.0 server). Your application gets its own `client_id` and `client_secret`, exchanges them for a short-lived token (~12 hours), and sends that token on every request.
+
+**Step 1 — Get your credentials**
+
+Contact the API owner to receive a Service Key. It contains:
+```json
+{
+  "clientid":     "sb-cap-atc-ui!t1234",
+  "clientsecret": "abc...xyz=",
+  "url":          "https://gdh-ai-36qgo4cx.authentication.eu10.hana.ondemand.com",
+  "tokenurl":     "https://gdh-ai-36qgo4cx.authentication.eu10.hana.ondemand.com/oauth/token"
+}
+```
+
+**Step 2 — Fetch a token**
+```bash
+curl -X POST https://gdh-ai-36qgo4cx.authentication.eu10.hana.ondemand.com/oauth/token \
+  -u "<clientid>:<clientsecret>" \
+  -d "grant_type=client_credentials"
+```
+Response:
+```json
+{ "access_token": "eyJhbGci...", "token_type": "Bearer", "expires_in": 43199 }
+```
+
+**Step 3 — Call the API**
+```bash
+curl -X POST https://cap-atc-ui-gdh.cfapps.eu10-005.hana.ondemand.com/api/v1/analyze \
+  -H "Authorization: Bearer eyJhbGci..." \
+  -F "customer=MyProject" \
+  -F "atcFile=@ATC_Extract.xlsx"
+```
+
+> Cache the token and reuse it until it expires. Fetching a new token for every request is unnecessary and slow.
+
+---
+
+### Method 2 — API Key (Legacy / Simple integrations)
+
+For quick integrations where OAuth setup is not needed:
 ```
 X-API-Key: <your-api-key>
 ```
 
-The `/api/v1/health` endpoint does **not** require authentication.
+> **Note:** If the server has no `API_KEY` environment variable configured (e.g. a private internal deployment), all endpoints are open and no header is needed.
 
-> **Note:** If the server has no `API_KEY` environment variable configured (e.g. a private internal deployment), all endpoints are open and the header can be omitted.
+---
+
+### Which to use?
+
+| | OAuth 2.0 Bearer | API Key |
+|---|---|---|
+| Recommended for | Production, multiple consumers | Quick tests, single internal use |
+| Token expiry | Yes (~12 hours, auto-renewable) | Never |
+| Per-consumer identity | Yes — each client has its own ID | No |
+| Revocation | Instant via BTP | Manual key rotation |
 
 ---
 
@@ -35,8 +86,9 @@ The `/api/v1/health` endpoint does **not** require authentication.
 │                      Third-Party Application                        │
 │                                                                     │
 │  1. Prepare input files (ATC extract XLSX + optional extras)        │
-│  2. POST /api/v1/analyze  (multipart/form-data + X-API-Key header)  │
-│  3. Receive JSON response with:                                     │
+│  2. POST /oauth/token → receive Bearer token (cache it)             │
+│  3. POST /api/v1/analyze  (multipart/form-data + Bearer token)      │
+│  4. Receive JSON response with:                                     │
 │       ├─ counts  (total, HCA, S/4H, SPDD, SPAU, FitGapDelta)       │
 │       └─ artifacts[] (base64-encoded Excel, PPT, Estimation, TUA)  │
 │  4. Decode base64 → save / display files in your app               │
@@ -334,60 +386,51 @@ const FormData = require('form-data');  // npm install form-data axios
 const fs       = require('fs');
 const axios    = require('axios');
 
-const API_BASE = 'https://cap-atc-ui-gdh.cfapps.eu10-005.hana.ondemand.com';
-const API_KEY  = process.env.ATC_API_KEY;  // never hardcode — use env var
+const API_BASE     = 'https://cap-atc-ui-gdh.cfapps.eu10-005.hana.ondemand.com';
+const TOKEN_URL    = process.env.ATC_TOKEN_URL;     // from service key: url + /oauth/token
+const CLIENT_ID    = process.env.ATC_CLIENT_ID;     // from service key: clientid
+const CLIENT_SECRET = process.env.ATC_CLIENT_SECRET; // from service key: clientsecret
+
+// ── Token cache — reuse until expired ────────────────────────────────────────
+let _token = null, _tokenExpiry = 0;
+async function getToken() {
+  if (_token && Date.now() < _tokenExpiry) return _token;
+  const resp = await axios.post(TOKEN_URL, 'grant_type=client_credentials', {
+    auth: { username: CLIENT_ID, password: CLIENT_SECRET },
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  });
+  _token = resp.data.access_token;
+  _tokenExpiry = Date.now() + (resp.data.expires_in - 60) * 1000; // refresh 1 min early
+  return _token;
+}
 
 async function runAtcAnalysis({ customer, analysisMode = 'atc', migType = 'conversion',
-                                 atcFile, cloneFile, smodilogFile, trnspacetFile, nsOwnerFile }) {
-  const form = new FormData();
+                                 atcFile, cloneFile, smodilogFile, trnspacetFile }) {
+  const token = await getToken();
 
-  // Text fields go in the body — NOT the URL
+  const form = new FormData();
   form.append('customer',     customer);
   form.append('analysisMode', analysisMode);
   form.append('migType',      migType);
-
-  // Files also go in the body as binary streams
   if (atcFile)       form.append('atcFile',      fs.createReadStream(atcFile));
   if (cloneFile)     form.append('cloneFile',     fs.createReadStream(cloneFile));
   if (smodilogFile)  form.append('smodilogFile',  fs.createReadStream(smodilogFile));
   if (trnspacetFile) form.append('trnspacetFile', fs.createReadStream(trnspacetFile));
-  if (nsOwnerFile)   form.append('nsOwnerFile',   fs.createReadStream(nsOwnerFile));
 
-  const response = await axios.post(`${API_BASE}/api/v1/analyze`, form, {
-    headers: { ...form.getHeaders(), 'X-API-Key': API_KEY },
-    timeout: 300_000,  // 5 minutes
+  const { data } = await axios.post(`${API_BASE}/api/v1/analyze`, form, {
+    headers: { ...form.getHeaders(), 'Authorization': `Bearer ${token}` },
+    timeout: 300_000,
   });
 
-  const { counts, artifacts } = response.data;
-  console.log('Counts:', counts);
-  // counts: { total, hca, s4h, spdd, spau, fitGapDelta }
-
-  // Each artifact has a base64 content field — decode and save
-  for (const artifact of artifacts) {
+  console.log('Counts:', data.counts);
+  for (const artifact of data.artifacts) {
     fs.writeFileSync(artifact.filename, Buffer.from(artifact.content, 'base64'));
-    console.log(`Saved: ${artifact.filename}  (${artifact.size} bytes)`);
-    // artifact.role: "atc_result" | "pptx" | "estimation" | "tua"
+    console.log(`Saved: ${artifact.filename}`);
   }
-
-  return response.data;
+  return data;
 }
 
-// ATC only
-runAtcAnalysis({
-  customer:  'Acme Corp',
-  atcFile:   './ATC_Extract.xlsx',
-});
-
-// Full analysis — ATC + TUA + Clone, upgrade mode
-runAtcAnalysis({
-  customer:      'Acme Corp',
-  analysisMode:  'atc_tua_clone',
-  migType:       'upgrade',
-  atcFile:       './ATC_Extract.xlsx',
-  cloneFile:     './Clone_Extract.xlsx',
-  smodilogFile:  './SMODILOG.xlsx',
-  trnspacetFile: './TRNSPACET.xlsx',
-});
+runAtcAnalysis({ customer: 'Acme Corp', atcFile: './ATC_Extract.xlsx' });
 ```
 
 ---
@@ -395,62 +438,59 @@ runAtcAnalysis({
 ### Python
 
 ```python
-import os, requests, base64
+import os, time, requests, base64
 
-API_BASE  = 'https://cap-atc-ui-gdh.cfapps.eu10-005.hana.ondemand.com'
-API_KEY   = os.environ['ATC_API_KEY']  # never hardcode — use env var
-XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+API_BASE      = 'https://cap-atc-ui-gdh.cfapps.eu10-005.hana.ondemand.com'
+TOKEN_URL     = os.environ['ATC_TOKEN_URL']      # from service key: url + /oauth/token
+CLIENT_ID     = os.environ['ATC_CLIENT_ID']      # from service key: clientid
+CLIENT_SECRET = os.environ['ATC_CLIENT_SECRET']  # from service key: clientsecret
+XLSX          = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
+# ── Token cache ───────────────────────────────────────────────────────────────
+_token, _token_expiry = None, 0
+
+def get_token():
+    global _token, _token_expiry
+    if _token and time.time() < _token_expiry:
+        return _token
+    r = requests.post(TOKEN_URL,
+        auth=(CLIENT_ID, CLIENT_SECRET),
+        data={'grant_type': 'client_credentials'}, timeout=10)
+    r.raise_for_status()
+    _token = r.json()['access_token']
+    _token_expiry = time.time() + r.json()['expires_in'] - 60  # refresh 1 min early
+    return _token
 
 def run_atc_analysis(customer, analysis_mode='atc', mig_type='conversion',
-                     atc_file=None, clone_file=None,
-                     smodilog_file=None, trnspacet_file=None, ns_owner_file=None):
+                     atc_file=None, clone_file=None, smodilog_file=None, trnspacet_file=None):
 
-    # Text fields go in `data=` — NOT the URL
-    data = {'customer': customer, 'analysisMode': analysis_mode, 'migType': mig_type}
-
-    # Files go in `files=` — binary content streamed in the body
     files = {}
     def _add(field, path):
-        if path:
-            files[field] = (os.path.basename(path), open(path, 'rb'), XLSX_MIME)
+        if path: files[field] = (os.path.basename(path), open(path, 'rb'), XLSX)
 
     _add('atcFile',       atc_file)
     _add('cloneFile',     clone_file)
     _add('smodilogFile',  smodilog_file)
     _add('trnspacetFile', trnspacet_file)
-    _add('nsOwnerFile',   ns_owner_file)
 
     try:
-        r = requests.post(
-            f'{API_BASE}/api/v1/analyze',
-            headers={'X-API-Key': API_KEY},
-            data=data,
-            files=files,
-            timeout=300,
-        )
+        r = requests.post(f'{API_BASE}/api/v1/analyze',
+            headers={'Authorization': f'Bearer {get_token()}'},
+            data={'customer': customer, 'analysisMode': analysis_mode, 'migType': mig_type},
+            files=files, timeout=300)
         r.raise_for_status()
     finally:
-        for _, (_, fh, _) in files.items():
-            fh.close()
+        for _, (_, fh, _) in files.items(): fh.close()
 
     result = r.json()
     print('Counts:', result['counts'])
-    # counts: { 'total', 'hca', 's4h', 'spdd', 'spau', 'fitGapDelta' }
-
     for artifact in result['artifacts']:
         with open(artifact['filename'], 'wb') as f:
             f.write(base64.b64decode(artifact['content']))
-        print(f"Saved: {artifact['filename']}  ({artifact['size']} bytes)")
-        # artifact['role']: "atc_result" | "pptx" | "estimation" | "tua"
-
+        print(f"Saved: {artifact['filename']}")
     return result
 
-# ATC only
 run_atc_analysis('Acme Corp', atc_file='ATC_Extract.xlsx')
-
-# ATC + Clone, conversion
-run_atc_analysis('Acme Corp', analysis_mode='atc_clone',
-                 atc_file='ATC_Extract.xlsx', clone_file='Clone_Extract.xlsx')
 ```
 
 ---
@@ -467,56 +507,60 @@ import java.util.*;
 
 public class AtcApiClient {
 
-    private static final String API_BASE = "https://cap-atc-ui-gdh.cfapps.eu10-005.hana.ondemand.com";
-    private static final MediaType XLSX   = MediaType.parse(
+    private static final String API_BASE      = "https://cap-atc-ui-gdh.cfapps.eu10-005.hana.ondemand.com";
+    private static final String TOKEN_URL     = System.getenv("ATC_TOKEN_URL");
+    private static final String CLIENT_ID     = System.getenv("ATC_CLIENT_ID");
+    private static final String CLIENT_SECRET = System.getenv("ATC_CLIENT_SECRET");
+    private static final MediaType XLSX       = MediaType.parse(
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
 
     private final OkHttpClient http = new OkHttpClient.Builder()
-        .callTimeout(java.time.Duration.ofMinutes(5))
-        .build();
+        .callTimeout(java.time.Duration.ofMinutes(5)).build();
     private final ObjectMapper json = new ObjectMapper();
 
-    public Map<String, Object> runAnalysis(String customer, String analysisMode,
-                                           String migType, File atcFile) throws Exception {
+    // ── Token cache ───────────────────────────────────────────────────────────
+    private String cachedToken; private long tokenExpiry;
 
-        // Text fields and files both go in the multipart body — NOT the URL
-        MultipartBody.Builder body = new MultipartBody.Builder()
-            .setType(MultipartBody.FORM)
-            .addFormDataPart("customer",     customer)
-            .addFormDataPart("analysisMode", analysisMode)
-            .addFormDataPart("migType",      migType)
-            .addFormDataPart("atcFile", atcFile.getName(),
-                RequestBody.create(atcFile, XLSX));  // file streamed in body
-
-        Request request = new Request.Builder()
-            .url(API_BASE + "/api/v1/analyze")
-            .addHeader("X-API-Key", System.getenv("ATC_API_KEY"))  // from env var
-            .post(body.build())
+    private String getToken() throws Exception {
+        if (cachedToken != null && System.currentTimeMillis() < tokenExpiry) return cachedToken;
+        Request req = new Request.Builder().url(TOKEN_URL)
+            .addHeader("Authorization", Credentials.basic(CLIENT_ID, CLIENT_SECRET))
+            .post(RequestBody.create("grant_type=client_credentials",
+                MediaType.parse("application/x-www-form-urlencoded")))
             .build();
-
-        try (Response response = http.newCall(request).execute()) {
-            if (!response.isSuccessful())
-                throw new RuntimeException("API error: " + response.code() + " " + response.body().string());
-
-            Map result = json.readValue(response.body().string(), Map.class);
-
-            // Save artifacts
-            List<Map> artifacts = (List<Map>) result.get("artifacts");
-            for (Map artifact : artifacts) {
-                byte[] bytes = Base64.getDecoder().decode((String) artifact.get("content"));
-                java.nio.file.Files.write(
-                    java.nio.file.Path.of((String) artifact.get("filename")), bytes);
-                System.out.println("Saved: " + artifact.get("filename"));
-            }
-
-            System.out.println("Counts: " + result.get("counts"));
-            return result;
+        try (Response r = http.newCall(req).execute()) {
+            Map resp = json.readValue(r.body().string(), Map.class);
+            cachedToken = (String) resp.get("access_token");
+            tokenExpiry = System.currentTimeMillis() + ((Integer) resp.get("expires_in") - 60) * 1000L;
+            return cachedToken;
         }
     }
 
-    public static void main(String[] args) throws Exception {
-        new AtcApiClient().runAnalysis(
-            "Acme Corp", "atc", "conversion", new File("ATC_Extract.xlsx"));
+    public Map<String, Object> runAnalysis(String customer, String analysisMode,
+                                            String migType, File atcFile) throws Exception {
+        RequestBody body = new MultipartBody.Builder().setType(MultipartBody.FORM)
+            .addFormDataPart("customer",     customer)
+            .addFormDataPart("analysisMode", analysisMode)
+            .addFormDataPart("migType",      migType)
+            .addFormDataPart("atcFile", atcFile.getName(), RequestBody.create(atcFile, XLSX))
+            .build();
+
+        Request request = new Request.Builder()
+            .url(API_BASE + "/api/v1/analyze")
+            .addHeader("Authorization", "Bearer " + getToken())
+            .post(body).build();
+
+        try (Response response = http.newCall(request).execute()) {
+            if (!response.isSuccessful())
+                throw new RuntimeException("API error: " + response.code());
+            Map result = json.readValue(response.body().string(), Map.class);
+            for (Map artifact : (List<Map>) result.get("artifacts")) {
+                byte[] bytes = Base64.getDecoder().decode((String) artifact.get("content"));
+                java.nio.file.Files.write(java.nio.file.Path.of((String) artifact.get("filename")), bytes);
+                System.out.println("Saved: " + artifact.get("filename"));
+            }
+            return result;
+        }
     }
 }
 ```
@@ -525,11 +569,7 @@ public class AtcApiClient {
 
 ### React / Browser App
 
-> **Important:** Never call the ATC API directly from browser-side JavaScript — that would expose your API key to anyone who opens DevTools. Route all calls through your own backend.
-
-```
-Browser → Your backend server → ATC API
-```
+> **Important:** Never call the ATC API directly from browser-side JavaScript — that would expose your credentials to anyone who opens DevTools. Route all calls through your own backend.
 
 **Backend (Node/Express proxy):**
 
@@ -542,21 +582,32 @@ const axios    = require('axios');
 const app    = express();
 const upload = multer({ storage: multer.memoryStorage() });
 
+// Token cache (same as standalone Node.js example above)
+let _token = null, _tokenExpiry = 0;
+async function getToken() {
+  if (_token && Date.now() < _tokenExpiry) return _token;
+  const resp = await axios.post(process.env.ATC_TOKEN_URL, 'grant_type=client_credentials', {
+    auth: { username: process.env.ATC_CLIENT_ID, password: process.env.ATC_CLIENT_SECRET },
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  });
+  _token = resp.data.access_token;
+  _tokenExpiry = Date.now() + (resp.data.expires_in - 60) * 1000;
+  return _token;
+}
+
 app.post('/run-analysis', upload.single('atcFile'), async (req, res) => {
   const form = new FormData();
   form.append('customer',     req.body.customer);
   form.append('analysisMode', req.body.analysisMode || 'atc');
   form.append('migType',      req.body.migType      || 'conversion');
-  // File buffer from multer re-attached to outgoing request body
   form.append('atcFile', req.file.buffer, { filename: req.file.originalname });
 
   const { data } = await axios.post(
     'https://cap-atc-ui-gdh.cfapps.eu10-005.hana.ondemand.com/api/v1/analyze',
     form,
-    { headers: { ...form.getHeaders(), 'X-API-Key': process.env.ATC_API_KEY } }
+    { headers: { ...form.getHeaders(), 'Authorization': `Bearer ${await getToken()}` } }
   );
-
-  res.json(data);  // forward counts + artifacts to your frontend
+  res.json(data);
 });
 ```
 
@@ -568,20 +619,17 @@ async function handleUpload(file, customer) {
   form.append('customer', customer);
   form.append('atcFile',  file);        // File object from <input type="file">
 
+  // POST to YOUR backend — never directly to the ATC API
   const res    = await fetch('/run-analysis', { method: 'POST', body: form });
   const result = await res.json();
 
   console.log('Counts:', result.counts);
-
-  // Download a file directly in the browser
   for (const artifact of result.artifacts) {
     const bytes = Uint8Array.from(atob(artifact.content), c => c.charCodeAt(0));
     const blob  = new Blob([bytes], { type: artifact.mimeType });
     const url   = URL.createObjectURL(blob);
     const a     = document.createElement('a');
-    a.href      = url;
-    a.download  = artifact.filename;
-    a.click();
+    a.href = url; a.download = artifact.filename; a.click();
   }
 }
 ```
