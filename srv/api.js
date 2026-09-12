@@ -87,6 +87,7 @@ const multer       = require("multer");
 const passport     = require("passport");
 const xssec        = require("@sap/xssec");
 const atcProcessor = require("../lib/atcProcessor");
+const { toBuffer, toHex } = require("../lib/bufferUtil");
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -109,23 +110,6 @@ const VALID_MODES = new Set(["atc", "atc_clone", "atc_tua", "atc_tua_clone", "tu
 async function _db() {
   if (cds.db) return cds.db;
   return cds.connect.to("db");
-}
-
-// ── Buffer helper (handles streams returned by CAP v8 LargeBinary) ────────────
-async function _toBuffer(val) {
-  if (!val) return Buffer.alloc(0);
-  if (Buffer.isBuffer(val)) return val;
-  if (typeof val === "string") return Buffer.from(val, "hex");
-  if (val instanceof Uint8Array) return Buffer.from(val);
-  if (typeof val.pipe === "function" || typeof val.on === "function") {
-    return new Promise((resolve, reject) => {
-      const chunks = [];
-      val.on("data", c => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
-      val.on("end",  () => resolve(Buffer.concat(chunks)));
-      val.on("error", reject);
-    });
-  }
-  return Buffer.from(String(val), "hex");
 }
 
 // ── Auth middleware ────────────────────────────────────────────────────────────
@@ -190,13 +174,11 @@ function _authGuard(req, res, next) {
 // ── Build artifact list from DB (with base64 content) ─────────────────────────
 async function _loadArtifacts(db, jobId) {
   const arts = await db.run(
-    SELECT.from("atc.Artifacts")
-      .columns("id", "role", "filename", "mimeType", "size", "content")
-      .where({ jobId })
+    `SELECT id, role, filename, mimeType, size, content FROM atc_Artifacts WHERE jobId = ?`, [jobId]
   );
   const result = [];
   for (const art of arts) {
-    const buf = await _toBuffer(art.content);
+    const buf = await toBuffer(art.content);
     result.push({
       role:     art.role,
       filename: art.filename,
@@ -262,15 +244,10 @@ function register(app) {
           const f = files[fieldName]?.[0];
           if (!f) return null;
           const fileId = cds.utils.uuid();
-          await db.run(INSERT.into("atc.Files").entries({
-            id:       fileId,
-            jobId,
-            role,
-            filename: f.originalname,
-            mimeType: f.mimetype,
-            content:  f.buffer,
-            size:     f.size,
-          }));
+          await db.run(
+            `INSERT INTO atc_Files (id, jobId, role, filename, mimeType, content, size) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [fileId, jobId, role, f.originalname, f.mimetype, toHex(f.buffer), f.size]
+          );
           return fileId;
         };
 
@@ -392,9 +369,7 @@ function register(app) {
 
       // role may have chunk suffix (e.g. atc_result_chunk_1) — use prefix match
       const arts = await db.run(
-        SELECT.from("atc.Artifacts")
-          .columns("id", "filename", "mimeType", "content")
-          .where({ jobId })
+        `SELECT id, role, filename, mimeType, content FROM atc_Artifacts WHERE jobId = ?`, [jobId]
       );
       const art = arts.find(a => a.role === role || a.role.startsWith(role + "_chunk"));
       if (!art) {
@@ -404,7 +379,7 @@ function register(app) {
         });
       }
 
-      const buf = await _toBuffer(art.content);
+      const buf = await toBuffer(art.content);
       res.setHeader("Content-Disposition", `attachment; filename="${art.filename}"`);
       res.setHeader("Content-Type", art.mimeType || "application/octet-stream");
       res.setHeader("Content-Length", buf.length);

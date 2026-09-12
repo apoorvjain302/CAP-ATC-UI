@@ -47,7 +47,7 @@ entity Files {
       role     : String(20);   // atc|clone|smodilog|trnspacet|ns_owner
       filename : String(500);
       mimeType : String(200);
-      content  : LargeBinary;  // file bytes stored in DB
+      content  : LargeString;  // file bytes stored as hex string
       size     : Integer;
       createdAt: Timestamp     @cds.on.insert: $now;
 }
@@ -59,7 +59,7 @@ entity Artifacts {
       role     : String(20);   // atc_result|tua|pptx|estimation
       filename : String(500);
       mimeType : String(200);
-      content  : LargeBinary;
+      content  : LargeString;  // file bytes stored as hex string
       size     : Integer;
       createdAt: Timestamp     @cds.on.insert: $now;
 }

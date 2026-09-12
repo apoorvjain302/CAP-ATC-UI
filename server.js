@@ -5,12 +5,13 @@
  * All DB ops use cds.db.run() since bootstrap runs outside a request context.
  */
 
-const cds      = require("@sap/cds");
-const path     = require("path");
-const express  = require("express");
-const multer   = require("multer");
-const archiver = require("archiver");
-const passport = require("passport");
+const cds        = require("@sap/cds");
+const path       = require("path");
+const express    = require("express");
+const multer     = require("multer");
+const archiver   = require("archiver");
+const passport   = require("passport");
+const { toBuffer, toHex } = require("./lib/bufferUtil");
 
 try {
   require("dotenv").config({ path: path.join(__dirname, ".env"), override: false });
@@ -89,15 +90,10 @@ cds.on("bootstrap", async (app) => {
       const db     = await _db();
       const fileId = cds.utils.uuid();
 
-      await db.run(INSERT.into("atc.Files").entries({
-        id:       fileId,
-        jobId:    null,
-        role,
-        filename: req.file.originalname,
-        mimeType: req.file.mimetype,
-        content:  req.file.buffer,
-        size:     req.file.size,
-      }));
+      await db.run(
+        `INSERT INTO atc_Files (id, jobId, role, filename, mimeType, content, size) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [fileId, null, role, req.file.originalname, req.file.mimetype, toHex(req.file.buffer), req.file.size]
+      );
 
       res.json({
         fileId,
@@ -177,10 +173,10 @@ cds.on("bootstrap", async (app) => {
   app.get("/atc/download/:artifactId", async (req, res) => {
     try {
       const db  = await _db();
-      const [art] = await db.run(SELECT.from("atc.Artifacts").columns("id","filename","mimeType","content").where({ id: req.params.artifactId }));
+      const [art] = await db.run(`SELECT id, filename, mimeType, content FROM atc_Artifacts WHERE id = ?`, [req.params.artifactId]);
       if (!art) return res.status(404).json({ error: "Artifact not found" });
 
-      const buf = await _toBuffer(art.content);
+      const buf = await toBuffer(art.content);
       res.setHeader("Content-Disposition", `attachment; filename="${art.filename}"`);
       res.setHeader("Content-Type", art.mimeType || "application/octet-stream");
       res.send(buf);
@@ -194,10 +190,10 @@ cds.on("bootstrap", async (app) => {
   app.get("/atc/downloadAll/:jobId", async (req, res) => {
     try {
       const db   = await _db();
-      const arts = await db.run(SELECT.from("atc.Artifacts").columns("id","filename","mimeType","content").where({ jobId: req.params.jobId }));
+      const arts = await db.run(`SELECT id, filename, mimeType, content FROM atc_Artifacts WHERE jobId = ?`, [req.params.jobId]);
       if (!arts.length) return res.status(404).json({ error: "No artifacts found" });
 
-      const [job]    = await db.run(SELECT.from("atc.Jobs").where({ id: req.params.jobId }));
+      const [job]    = await db.run(`SELECT customer FROM atc_Jobs WHERE id = ?`, [req.params.jobId]);
       const customer = job?.customer ? job.customer.replace(/[^a-z0-9_\-]/gi, "_") : "ATC";
 
       res.setHeader("Content-Disposition", `attachment; filename="${customer}_ATC_Results.zip"`);
@@ -207,7 +203,7 @@ cds.on("bootstrap", async (app) => {
       archive.on("error", err => res.status(500).json({ error: err.message }));
       archive.pipe(res);
       for (const art of arts) {
-        archive.append(await _toBuffer(art.content), { name: art.filename });
+        archive.append(await toBuffer(art.content), { name: art.filename });
       }
       await archive.finalize();
     } catch (err) {
@@ -216,23 +212,6 @@ cds.on("bootstrap", async (app) => {
     }
   });
 });
-
-async function _toBuffer(val) {
-  if (!val) return Buffer.alloc(0);
-  if (Buffer.isBuffer(val)) return val;
-  if (typeof val === "string") return Buffer.from(val, "hex");
-  if (val instanceof Uint8Array) return Buffer.from(val);
-  // CAP v8 returns LargeBinary as a Readable stream
-  if (typeof val.pipe === "function" || typeof val.on === "function") {
-    return new Promise((resolve, reject) => {
-      const chunks = [];
-      val.on("data", c => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
-      val.on("end",  () => resolve(Buffer.concat(chunks)));
-      val.on("error", reject);
-    });
-  }
-  return Buffer.from(String(val), "hex");
-}
 
 module.exports = cds.server;
 

@@ -1,0 +1,11 @@
+# All binary files — never apply CRLF conversion
+*.gz        binary
+*.xlsx      binary
+*.xls       binary
+*.pptx      binary
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.ico       binary
+*.pdf       binary
+*.zip       binary
