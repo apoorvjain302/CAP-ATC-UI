@@ -27,16 +27,16 @@ Uses SAP XSUAA (the BTP OAuth 2.0 server). Your application gets its own `client
 Contact the API owner to receive a Service Key. It contains:
 ```json
 {
-  "clientid":     "sb-cap-atc-ui!t1234",
-  "clientsecret": "abc...xyz=",
-  "url":          "https://gdh-ai-36qgo4cx.authentication.eu10.hana.ondemand.com",
-  "tokenurl":     "https://gdh-ai-36qgo4cx.authentication.eu10.hana.ondemand.com/oauth/token"
+  "clientid":     "<your-client-id>",
+  "clientsecret": "<your-client-secret>",
+  "url":          "https://<subaccount>.authentication.<region>.hana.ondemand.com",
+  "tokenurl":     "https://<subaccount>.authentication.<region>.hana.ondemand.com/oauth/token"
 }
 ```
 
 **Step 2 — Fetch a token**
 ```bash
-curl -X POST https://gdh-ai-36qgo4cx.authentication.eu10.hana.ondemand.com/oauth/token \
+curl -X POST https://<subaccount>.authentication.<region>.hana.ondemand.com/oauth/token \
   -u "<clientid>:<clientsecret>" \
   -d "grant_type=client_credentials"
 ```
@@ -662,7 +662,7 @@ import time
 
 # Step 1: submit
 resp = requests.post(f"{API_BASE}/api/v1/analyze",
-    headers={"X-API-Key": API_KEY},
+    headers={"Authorization": f"Bearer {get_token()}"},
     data={"customer": "ABC", "analysisMode": "atc", "migType": "conversion", "wait": "false"},
     files={"atcFile": ("ATC.xlsx", open("ATC.xlsx","rb"), XLSX_MIME)},
     timeout=30
@@ -672,7 +672,7 @@ job_id = resp.json()["jobId"]
 # Step 2: poll
 while True:
     poll = requests.get(f"{API_BASE}/api/v1/analyze/{job_id}",
-                        headers={"X-API-Key": API_KEY}).json()
+                        headers={"Authorization": f"Bearer {get_token()}"}).json()
     print(poll["statusMsg"])
     if poll["status"] == "done":
         break
